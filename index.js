@@ -876,6 +876,40 @@ app.get('/api/reports/customers', async (req, res) => {
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'OK', pid: process.pid }));
 
+// --- FOYDALANUVCHILARNI AVTOMATIK TEKSHIRISH (Self-Healing) ---
+async function ensureUsers() {
+    try {
+        const passwordHash = await bcrypt.hash('12345', 10);
+        
+        // Admin
+        await prisma.user.upsert({
+            where: { phone: '+998917134713' },
+            update: { passwordHash: passwordHash },
+            create: {
+                fullName: 'Admin',
+                phone: '+998917134713',
+                passwordHash: passwordHash,
+                role: 'admin'
+            }
+        });
+
+        // Kassir
+        await prisma.user.upsert({
+            where: { phone: '+998907134713' },
+            update: { passwordHash: passwordHash },
+            create: {
+                fullName: 'Kassir',
+                phone: '+998907134713',
+                passwordHash: passwordHash,
+                role: 'kassir'
+            }
+        });
+        console.log(`[Database] Admin va Kassir parollari '12345' qilib yangilandi.`);
+    } catch (e) {
+        console.error('[Database] User sync xatosi:', e.message);
+    }
+}
+
 // --- SERVER ISHGA TUSHIRISH ---
 const PORT = process.env.PORT || 5000;
 
@@ -900,6 +934,7 @@ if (useCluster && cluster.isMaster) {
     }
     server.listen(PORT, '0.0.0.0', async () => {
         await tuneDatabase();
+        await ensureUsers(); // Parollarni 12345 ekanligini ta'minlash
         console.log(`[Server] ${process.pid} ishga tushdi (Port: ${PORT})`);
     });
 }
