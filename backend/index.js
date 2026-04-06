@@ -870,31 +870,32 @@ app.get('/api/reports/customers', async (req, res) => {
 });
 
 app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'OK', pid: process.pid }));
 
-// --- SERVER ISHGA TUSHIRISH (CLUSTERING) ---
+// --- SERVER ISHGA TUSHIRISH ---
 const PORT = process.env.PORT || 5000;
 
-if (cluster.isMaster) {
-    console.log(`[Master] Master jarayoni ishga tushdi: ${process.pid}`);
-    
-    // Cluster adapter primary setup
-    setupPrimary();
+// Railway (Production): Cluster o'chiq, to'g'ridan-to'g'ri ishga tushadi
+// Local (Development): NODE_CLUSTER=true bo'lsa cluster yoqiladi
+const useCluster = process.env.NODE_CLUSTER === 'true';
 
-    // Har bir yadro uchun server nusxasini (Worker) yaratish
+if (useCluster && cluster.isMaster) {
+    console.log(`[Master] Master jarayoni ishga tushdi: ${process.pid}`);
+    setupPrimary();
     for (let i = 0; i < numCPUs; i++) {
         cluster.fork();
     }
-
     cluster.on('exit', (worker, code, signal) => {
         console.log(`[Master] Worker o'chdi: ${worker.process.pid}. Qayta tiklanmoqda...`);
         cluster.fork();
     });
 } else {
-    // Worker'lar tomonidan serverni tinglash
-    io.adapter(createAdapter());
-
+    // Railway va oddiy ishga tushurish uchun
+    if (useCluster) {
+        io.adapter(createAdapter());
+    }
     server.listen(PORT, '0.0.0.0', async () => {
         await tuneDatabase();
-        console.log(`[Worker] Server ${process.pid} ishga tushdi (Port: ${PORT})`);
+        console.log(`[Server] ${process.pid} ishga tushdi (Port: ${PORT})`);
     });
 }
