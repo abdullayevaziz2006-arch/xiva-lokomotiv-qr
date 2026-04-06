@@ -14,6 +14,18 @@ import Carousels from './pages/admin/Carousels'
 import Cashiers from './pages/admin/Cashiers'
 import Reports from './pages/admin/Reports'
 
+// Yo'naltirish yordamchisi: Rolga qarab kerakli sahifaga yuboradi
+const RootRedirect = () => {
+  const userString = localStorage.getItem('user');
+  if (!userString) return <Navigate to="/login" replace />;
+  
+  const user = JSON.parse(userString);
+  if (user.role === 'admin' || user.role === 'tadbirkor') {
+    return <Navigate to="/admin" replace />;
+  }
+  return <KassirPanel />;
+};
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
@@ -21,9 +33,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         {/* Avtorizatsiya Oynasi */}
         <Route path="/login" element={<Login />} />
 
-        {/* Kassirlar uchun (Faqat Kassir yoki Admin kira oladi) */}
+        {/* Asosiy Yo'naltirish (Rolga qarab) */}
         <Route element={<ProtectedRoute allowedRoles={['kassir', 'admin', 'tadbirkor']} />}>
-            <Route path="/" element={<KassirPanel />} />
+            <Route path="/" element={<RootRedirect />} />
         </Route>
         
         {/* Admin Router (Faqat Admin va Tadbirkor kira oladi) */}

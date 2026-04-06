@@ -371,6 +371,28 @@ app.post('/api/qrcodes/:id/retry', async (req, res) => {
         res.status(500).json({ error: "Terminalga qayta yuklash amalga oshmadi" });
     }
 });
+// Oxirgi 20 ta sotilgan chiptalarni ko'rish (Kassir Tarixi uchun)
+app.get('/api/qrcodes/recent', async (req, res) => {
+    try {
+        const recentTickets = await prisma.qRCode.findMany({
+            take: 20,
+            orderBy: { createdAt: 'desc' },
+            include: { carousels: { include: { carousel: true } } }
+        });
+
+        // Ma'lumotlarni dekript qilish
+        const decryptedTickets = recentTickets.map(t => ({
+            ...t,
+            customerName: decrypt(t.customerName) || "Mijoz",
+            customerPhone: decrypt(t.customerPhone) || "Noma'lum"
+        }));
+
+        res.json(decryptedTickets);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // QR ni Qidirish (Vozvrat oynasi uchun)
 app.get('/api/qrcodes/search', async (req, res) => {
     try {

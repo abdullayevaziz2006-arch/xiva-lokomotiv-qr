@@ -65,6 +65,45 @@ const KassirPanel = () => {
         };
     }, []);
 
+
+    const [recentTickets, setRecentTickets] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+
+    const fetchRecentTickets = async () => {
+        setHistoryLoading(true);
+        try {
+            const res = await axios.get(`${API_URL}/qrcodes/recent`);
+            setRecentTickets(res.data);
+        } catch (err) {
+            console.error("Tarixni yuklashda xato:", err);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const fetchCarousels = async () => {
+            try {
+                const res = await axios.get(`${API_URL}/carousels`);
+                setCarousels(res.data);
+            } catch (err) {
+                console.error("Karusellarni yuklashda xato:", err);
+            }
+        };
+        fetchCarousels();
+        fetchRecentTickets(); // Oxirgi chiptalarni yuklash
+
+        // Socket.io orqali real-vaqtda xabarlarni eshitish
+        socket.on('qr-used', (data) => {
+            console.log('[Socket] QR ishlatildi:', data);
+            fetchRecentTickets(); // Tarixni yangilash
+        });
+
+        return () => {
+            socket.off('qr-used');
+        };
+    }, []);
+
     const toggleCarouselSelection = (id) => {
         if (selectedCarousels.includes(id)) {
             setSelectedCarousels(selectedCarousels.filter(item => item !== id));
@@ -99,10 +138,11 @@ const KassirPanel = () => {
             setCustomerName("");
             setCustomerPhone("");
             setSelectedCarousels([]);
+            fetchRecentTickets(); // Jadvalni parda ortida yangilash
 
             // Xatoliklar qisman bo'lsa (207)
             if (response.status === 207) {
-                setError(response.data.message + " Ulanmagan uskunalar: " + JSON.stringify(response.data.errors));
+                setError(response.data.message);
                 setGeneratedCode(prev => ({ ...prev, hasErrors: true }));
             } else {
                 setError(""); // Muaffaqqiyatli ishladi
@@ -112,7 +152,7 @@ const KassirPanel = () => {
             if (response.status !== 207) {
                 setTimeout(() => {
                     window.print();
-                }, 100);
+                }, 300);
             }
 
         } catch (err) {
@@ -130,7 +170,10 @@ const KassirPanel = () => {
                 alert("Terminalga qabul qilindi!");
                 setError("");
                 setGeneratedCode(prev => ({ ...prev, hasErrors: false }));
-                setTimeout(() => window.print(), 500);
+                setTimeout(() => {
+                    window.print();
+                    fetchRecentTickets();
+                }, 500);
             } else {
                 alert(res.data.message);
             }
@@ -147,6 +190,13 @@ const KassirPanel = () => {
     };
 
     // --- VOZVRAT FUNKSIYALARI ---
+    const selectTicketForRefund = (ticket) => {
+        setSearchResult(ticket);
+        setSearchQuery(ticket.qrString);
+        setRefundCarousels([]);
+        window.scrollTo({ top: 0, behavior: 'smooth' }); // Qidiruvga olib chiqish
+    };
+
     const handleSearch = async () => {
         if (!searchQuery) return;
         setSearchLoading(true);
@@ -175,6 +225,7 @@ const KassirPanel = () => {
             });
             alert("Muvaffaqiyatli! " + res.data.message);
             handleSearch(); // Izlashni yangilash
+            fetchRecentTickets(); // Tarixni yangilash
         } catch (err) {
             alert(err.response?.data?.error || "Vozvratda xatolik");
         } finally {
@@ -184,293 +235,217 @@ const KassirPanel = () => {
 
     return (
         <div className="kassir-container" style={{
-            padding: 'clamp(12px, 4vw, 40px)',
+            padding: '20px',
             fontFamily: "'Inter', sans-serif",
-            background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+            background: '#eff2f5',
             minHeight: '100vh',
             display: 'flex',
-            gap: 'clamp(14px, 3vw, 30px)',
-            flexWrap: 'wrap',
-            justifyContent: 'center',
-            alignItems: 'flex-start'
+            flexDirection: 'column',
+            gap: '20px',
+            alignItems: 'center'
         }}>
 
-            {/* GENERATSIYA QISMI (CHIPTA SOTISH) */}
+            {/* TEPADA: GENERATSIYA QISMI (CHIPTA SOTISH) */}
             <div className="no-print glass-card" style={{
-                flex: '1',
-                minWidth: 'min(100%, 400px)',
-                maxWidth: '500px',
-                background: 'rgba(255, 255, 255, 0.7)',
-                backdropFilter: 'blur(10px)',
-                borderRadius: '24px',
-                padding: 'clamp(16px, 4vw, 30px)',
-                boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
-                border: '1px solid rgba(255, 255, 255, 0.18)'
+                width: '100%',
+                maxWidth: '1200px',
+                background: '#fff',
+                borderRadius: '16px',
+                padding: '25px',
+                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '20px'
             }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
-                    <h2 style={{ margin: 0, fontSize: '1.8rem', fontWeight: '800', color: '#1a1a1a' }}>Chipta Sotish</h2>
-                    <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: '0.8rem', color: '#666', display: 'block' }}>Kassir:</span>
-                        <b style={{ color: '#2f54ff' }}>{user ? user.fullName : 'Noma\'lum'}</b>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee', paddingBottom: '15px' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: '800', color: '#1a1a1a' }}>Chipta Sotish</h2>
+                    <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                         <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: '0.8rem', color: '#666' }}>Kassir:</span>
+                            <b style={{ color: '#2f54ff', marginLeft: '5px' }}>{user ? user.fullName : 'Noma\'lum'}</b>
+                        </div>
+                        <button onClick={() => { localStorage.removeItem('user'); navigate('/login'); }} style={{ background: '#f8f9fa', border: '1px solid #ddd', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}>Chiqish</button>
                     </div>
                 </div>
 
-                <div style={{ marginBottom: '20px' }}>
-                    <label style={{ fontSize: '0.9rem', fontWeight: '600', color: '#555' }}>Mijozning ismi:</label>
-                    <input
-                        type="text" value={customerName} onChange={e => setCustomerName(e.target.value)}
-                        style={{
-                            padding: '12px 16px',
-                            marginTop: '8px',
-                            width: '100%',
-                            boxSizing: 'border-box',
-                            borderRadius: '12px',
-                            border: '2px solid #eee',
-                            fontSize: '1rem',
-                            transition: 'all 0.3s'
-                        }}
-                        placeholder="Masalan: Jamshid Qadamboyev"
-                    />
-                </div>
-
-                <div style={{ marginBottom: '25px' }}>
-                    <label style={{ fontSize: '0.9rem', fontWeight: '600', color: '#555' }}>Karusellar:</label>
-                    <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
-                        {carousels.map(c => (
-                            <div key={c.id}
-                                onClick={() => toggleCarouselSelection(c.id)}
-                                style={{
-                                    padding: '12px',
-                                    background: selectedCarousels.includes(c.id) ? '#2f54ff' : '#fff',
-                                    color: selectedCarousels.includes(c.id) ? '#fff' : '#333',
-                                    borderRadius: '12px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    boxShadow: selectedCarousels.includes(c.id) ? '0 4px 12px rgba(47, 84, 255, 0.3)' : '0 2px 4px rgba(0,0,0,0.05)',
-                                    border: '1px solid ' + (selectedCarousels.includes(c.id) ? '#2f54ff' : '#eee')
-                                }}>
-                                <div style={{
-                                    width: '18px', height: '18px', border: '2px solid ' + (selectedCarousels.includes(c.id) ? '#fff' : '#ddd'),
-                                    borderRadius: '4px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '12px'
-                                }}>
-                                    {selectedCarousels.includes(c.id) && '✓'}
-                                </div>
-                                <span style={{ fontWeight: '500', fontSize: '0.9rem' }}>{c.name}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {!generatedCode || !generatedCode.hasErrors ? (
-                    <button
-                        onClick={handleGenerate}
-                        disabled={loading || selectedCarousels.length === 0}
-                        style={{
-                            padding: '16px',
-                            backgroundColor: '#2f54ff',
-                            color: 'white',
-                            border: 'none',
-                            cursor: 'pointer',
-                            width: '100%',
-                            fontSize: '1.1rem',
-                            fontWeight: '700',
-                            borderRadius: '16px',
-                            boxShadow: '0 10px 20px -5px rgba(47, 84, 255, 0.4)',
-                            transition: 'all 0.3s'
-                        }}
-                    >
-                        {loading ? "Tayyorlanmoqda..." : "Sotish & Chop etish"}
-                    </button>
-                ) : (
-                    <div style={{ padding: '20px', background: '#fff9db', borderRadius: '16px', border: '1px solid #fcc419' }}>
-                        <h4 style={{ margin: '0 0 10px 0', color: '#856404', fontSize: '0.95rem' }}>
-                            ⚠️ Terminal ulanishida xatolik!
-                        </h4>
-                        <button onClick={handleRetry} style={{ padding: '12px', background: '#fcc419', color: '#000', border: 'none', cursor: 'pointer', fontWeight: '800', borderRadius: '10px', width: '100%', marginBottom: '10px' }}>
-                            QAYTA YUBORISH ♻️
-                        </button>
-                        <button onClick={handleNewTicket} style={{ background: 'none', border: 'none', color: '#666', width: '100%', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}>
-                            Bekor qilish
-                        </button>
-                    </div>
-                )}
-                {error && <p style={{ color: '#ff4d4f', marginTop: '15px', fontSize: '0.85rem', textAlign: 'center', fontWeight: '600' }}>{error}</p>}
-            </div>
-
-            {/* VOZVRAT QISMI (IZLASH & QAYTARISH) */}
-            <div className="no-print glass-card" style={{
-                flex: '1.2',
-                minWidth: 'min(100%, 400px)',
-                background: 'rgba(255, 255, 255, 0.7)',
-                backdropFilter: 'blur(10px)',
-                borderRadius: '24px',
-                padding: 'clamp(16px, 4vw, 30px)',
-                boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
-                border: '1px solid rgba(255, 255, 255, 0.18)'
-            }}>
-                <h2 style={{ margin: '0 0 25px 0', fontSize: '1.8rem', fontWeight: '800', color: '#1a1a1a' }}>Chiptani Izlash & Vozvrat</h2>
-
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '25px' }}>
-                    <div style={{ position: 'relative', flex: 1 }}>
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1', minWidth: '300px' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#444' }}>Mijoz Ismi:</label>
                         <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                            style={{
-                                padding: '14px 20px',
-                                width: '100%',
-                                boxSizing: 'border-box',
-                                borderRadius: '14px',
-                                border: '2px solid #2f54ff44',
-                                fontSize: '1rem',
-                                outline: 'none',
-                                focus: { border: '2px solid #2f54ff' }
-                            }}
-                            placeholder="Skaner qiling yoki Ism yozing..."
+                            type="text" value={customerName} onChange={e => setCustomerName(e.target.value)}
+                            style={{ padding: '12px', marginTop: '8px', width: '100%', boxSizing: 'border-box', borderRadius: '10px', border: '2px solid #eee', fontSize: '1rem' }}
+                            placeholder="Mijoz ismini kiriting..."
                         />
                     </div>
-                    <button onClick={handleSearch} disabled={searchLoading} style={{
-                        padding: '0 25px',
-                        background: '#1a1a1a',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '14px',
-                        cursor: 'pointer',
-                        fontWeight: '700'
-                    }}>
-                        {searchLoading ? "..." : "Izlash"}
-                    </button>
+                    <div style={{ flex: '2', minWidth: '300px' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#444' }}>O'yingohlar:</label>
+                        <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {carousels.map(c => (
+                                <button key={c.id}
+                                    onClick={() => toggleCarouselSelection(c.id)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: selectedCarousels.includes(c.id) ? '#2f54ff' : '#fff',
+                                        color: selectedCarousels.includes(c.id) ? '#fff' : '#444',
+                                        borderRadius: '30px',
+                                        border: '1px solid ' + (selectedCarousels.includes(c.id) ? '#2f54ff' : '#ddd'),
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        fontSize: '0.85rem',
+                                        transition: '0.2s'
+                                    }}>
+                                    {c.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 </div>
 
-                {searchLoading && (
-                    <div style={{
-                        padding: '15px',
-                        textAlign: 'center',
-                        background: '#e7f0ff',
-                        borderRadius: '12px',
-                        color: '#2f54ff',
-                        fontSize: '0.9rem',
-                        fontWeight: '600',
-                        marginBottom: '20px',
-                        animation: 'pulse 1.5s infinite'
-                    }}>
-                        🔍 Turniket loglari jonli tekshirilmoqda...
-                    </div>
-                )}
-
-                {searchResult && (
-                    <div style={{ animation: 'slideIn 0.4s ease-out' }}>
-                        <div style={{ padding: '20px', background: '#f8f9fa', borderRadius: '18px', marginBottom: '20px', border: '1px solid #eee' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                                <span style={{ color: '#666', fontSize: '0.85rem' }}>Mijoz:</span>
-                                <b style={{ fontSize: '1.05rem' }}>{searchResult.customerName || 'Noma\'lum'}</b>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: '#666', fontSize: '0.85rem' }}>Holati:</span>
-                                <span style={{
-                                    padding: '2px 10px',
-                                    borderRadius: '20px',
-                                    fontSize: '0.75rem',
-                                    fontWeight: '700',
-                                    background: searchResult.status === -1 ? '#fff0f0' : '#ebfbee',
-                                    color: searchResult.status === -1 ? '#f03e3e' : '#37b24d'
-                                }}>
-                                    {searchResult.status === -1 ? '🔴 BEKOR QILINGAN' : '🟢 AKTIV'}
-                                </span>
-                            </div>
-                        </div>
-
-                        <h4 style={{ margin: '0 0 15px 0', fontSize: '1.1rem', color: '#333' }}>Biriktirilgan Karusellar</h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {searchResult.carousels.map(rel => {
-                                const isUsed = rel.status === 1;
-                                const isRefunded = rel.status === -1;
-                                const canRefund = rel.status === 0;
-
-                                return (
-                                    <div key={rel.id} style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        padding: '14px 18px',
-                                        background: isUsed ? '#f1f3f5' : isRefunded ? '#fff5f5' : '#fff',
-                                        borderRadius: '14px',
-                                        border: '1px solid ' + (isUsed ? '#dee2e6' : isRefunded ? '#ffa8a8' : '#e9ecef'),
-                                        opacity: isRefunded ? 0.7 : 1
-                                    }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            {/* CHECKBOX: FAQAT ISHLATILMAGANLAR UCHUN! */}
-                                            {canRefund ? (
-                                                <input
-                                                    type="checkbox"
-                                                    checked={refundCarousels.includes(rel.carouselId)}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) setRefundCarousels([...refundCarousels, rel.carouselId]);
-                                                        else setRefundCarousels(refundCarousels.filter(id => id !== rel.carouselId));
-                                                    }}
-                                                    style={{ width: '20px', height: '20px', cursor: 'pointer' }}
-                                                />
-                                            ) : (
-                                                <div style={{ width: '20px', height: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                                    {isUsed ? '🚫' : '❌'}
-                                                </div>
-                                            )}
-                                            <span style={{ fontWeight: '600', color: isUsed ? '#868e96' : '#212529' }}>{rel.carousel?.name}</span>
-                                        </div>
-
-                                        <div style={{ textAlign: 'right' }}>
-                                            <span style={{
-                                                fontSize: '0.7rem',
-                                                fontWeight: '800',
-                                                textTransform: 'uppercase',
-                                                color: isUsed ? '#495057' : isRefunded ? '#e03131' : '#2f54ff',
-                                                padding: '4px 8px',
-                                                background: isUsed ? '#e9ecef' : isRefunded ? '#ffe3e3' : '#edf2ff',
-                                                borderRadius: '6px'
-                                            }}>
-                                                {isUsed ? "✅ Foydalanildi" : (isRefunded ? "Vozvrat bo'ldi" : "Kutilmoqda")}
-                                            </span>
-                                            {isUsed && <div style={{ fontSize: '10px', color: '#adb5bd', marginTop: '2px' }}>Turniketdan o'tilgan</div>}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        {searchResult.status !== -1 && (
-                            <button
-                                onClick={handleRefund}
-                                disabled={searchLoading || refundCarousels.length === 0}
-                                style={{
-                                    padding: '16px',
-                                    marginTop: '25px',
-                                    width: '100%',
-                                    background: refundCarousels.length > 0 ? '#ff4d4f' : '#adb5bd',
-                                    color: '#fff',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    borderRadius: '16px',
-                                    fontWeight: '700',
-                                    fontSize: '1rem',
-                                    boxShadow: refundCarousels.length > 0 ? '0 10px 20px -5px rgba(255, 77, 79, 0.4)' : 'none',
-                                    transition: 'all 0.3s'
-                                }}>
-                                {refundCarousels.length > 0
-                                    ? `Tanlanganlarni (${refundCarousels.length} ta) Vozvrat Qilish`
-                                    : "Vozvrat uchun tanlang"}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px', alignItems: 'center' }}>
+                    {error && <span style={{ color: '#ff4d4f', fontSize: '0.85rem', fontWeight: '600' }}>{error}</span>}
+                    
+                    {!generatedCode || !generatedCode.hasErrors ? (
+                        <button
+                            onClick={handleGenerate}
+                            disabled={loading || selectedCarousels.length === 0}
+                            style={{
+                                padding: '12px 30px',
+                                backgroundColor: '#2f54ff',
+                                color: 'white',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '1rem',
+                                fontWeight: '700',
+                                borderRadius: '12px',
+                                boxShadow: '0 4px 12px rgba(47, 84, 255, 0.3)',
+                                opacity: (loading || selectedCarousels.length === 0) ? 0.6 : 1
+                            }}
+                        >
+                            {loading ? "Sotilmoqda..." : "Chiptani Sotish 🖨️"}
+                        </button>
+                    ) : (
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={handleRetry} style={{ padding: '10px 20px', background: '#fcc419', color: '#000', border: 'none', cursor: 'pointer', fontWeight: '800', borderRadius: '10px' }}>
+                                QAYTA YUBORISH ♻️
                             </button>
-                        )}
+                            <button onClick={handleNewTicket} style={{ background: '#eee', border: 'none', color: '#333', padding: '10px 20px', borderRadius: '10px', cursor: 'pointer' }}>
+                                Bekor qilish
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
 
-                        {searchResult.carousels.some(r => r.status === 1) && (
-                            <p style={{ marginTop: '15px', color: '#666', fontSize: '0.8rem', textAlign: 'center', fontStyle: 'italic' }}>
-                                * Ishlatilgan (turniketdan o'tilgan) karusellar bo'yicha pul qaytarilmaydi.
-                            </p>
-                        )}
+            {/* ORTADA: VOZVRAT QIDIRUV (FAQAT KERAK BO'LGANDA) */}
+            {searchResult && (
+                <div className="no-print" style={{ width: '100%', maxWidth: '1200px', background: '#fff0f0', borderRadius: '16px', padding: '20px', border: '2px solid #ffc9c9', animation: 'slideDown 0.3s' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ margin: 0, color: '#c92a2a' }}>Vozvrat: {searchResult.customerName}</h3>
+                        <button onClick={() => setSearchResult(null)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
                     </div>
-                )}
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '15px', flexWrap: 'wrap' }}>
+                        {searchResult.carousels.map(rel => (
+                            <div key={rel.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #ddd' }}>
+                                {rel.status === 0 ? (
+                                    <input type="checkbox" checked={refundCarousels.includes(rel.carouselId)} onChange={(e) => {
+                                        if (e.target.checked) setRefundCarousels([...refundCarousels, rel.carouselId]);
+                                        else setRefundCarousels(refundCarousels.filter(id => id !== rel.carouselId));
+                                    }} />
+                                ) : <span style={{ fontSize: '12px' }}>{rel.status === 1 ? '✅' : '❌'}</span>}
+                                <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>{rel.carousel?.name}</span>
+                            </div>
+                        ))}
+                        <button onClick={handleRefund} disabled={refundCarousels.length === 0} style={{ padding: '8px 20px', background: '#f03e3e', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' }}>BEKOR QILISH</button>
+                    </div>
+                </div>
+            )}
+
+            {/* PASTDA: SOTUVLAR TARIXI JADVALI */}
+            <div className="no-print glass-card" style={{
+                width: '100%',
+                maxWidth: '1200px',
+                background: '#fff',
+                borderRadius: '16px',
+                padding: '25px',
+                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: '800', color: '#1a1a1a' }}>Oxirgi Sotuvlar</h2>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <input 
+                            type="text" 
+                            placeholder="Chipta yoki Ism bo'yicha qidirish..." 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            style={{ padding: '8px 15px', borderRadius: '8px', border: '1px solid #ddd', width: '250px' }}
+                        />
+                        <button onClick={handleSearch} style={{ background: '#1a1a1a', color: '#fff', border: 'none', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer' }}>Qidirish</button>
+                    </div>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead>
+                            <tr style={{ borderBottom: '2px solid #f4f4f4' }}>
+                                <th style={{ padding: '12px', color: '#666', fontSize: '0.85rem' }}>MIJOZ</th>
+                                <th style={{ padding: '12px', color: '#666', fontSize: '0.85rem' }}>VAQT</th>
+                                <th style={{ padding: '12px', color: '#666', fontSize: '0.85rem' }}>CHIPIBILAT</th>
+                                <th style={{ padding: '12px', color: '#666', fontSize: '0.85rem' }}>O'YINGOHLAR</th>
+                                <th style={{ padding: '12px', color: '#666', fontSize: '0.85rem' }}>HOLATI</th>
+                                <th style={{ padding: '12px', color: '#666', fontSize: '0.85rem' }}>AMALLAR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {recentTickets.length > 0 ? (
+                                recentTickets.map((ticket) => (
+                                    <tr key={ticket.id} style={{ borderBottom: '1px solid #f9f9f9', transition: '0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+                                        <td style={{ padding: '15px 12px' }}>
+                                            <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>{ticket.customerName}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#999' }}>{ticket.customerPhone || 'Noma\'lum'}</div>
+                                        </td>
+                                        <td style={{ padding: '12px', fontSize: '0.85rem', color: '#555' }}>
+                                            {new Date(ticket.createdAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                            <code style={{ background: '#eee', padding: '3px 6px', borderRadius: '4px', fontSize: '0.8rem' }}>{ticket.qrString}</code>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                                {ticket.carousels.map(rel => (
+                                                    <span key={rel.id} title={rel.carousel.name} style={{ width: '8px', height: '8px', borderRadius: '50%', background: rel.status === 1 ? '#40c057' : rel.status === -1 ? '#fa5252' : '#228be6' }}></span>
+                                                ))}
+                                                <span style={{ fontSize: '0.8rem', color: '#666', marginLeft: '5px' }}>{ticket.carousels.length} ta</span>
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                            <span style={{ 
+                                                fontSize: '0.7rem', 
+                                                fontWeight: '800', 
+                                                padding: '4px 8px', 
+                                                borderRadius: '6px', 
+                                                background: ticket.status === -1 ? '#fff0f0' : '#ebfbee',
+                                                color: ticket.status === -1 ? '#f03e3e' : '#37b24d'
+                                            }}>
+                                                {ticket.status === -1 ? 'BEKOR' : 'AKTIV'}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                            <button onClick={() => selectTicketForRefund(ticket)} style={{ padding: '6px 12px', background: '#f8f9fa', border: '1px solid #ddd', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600' }}>Vozvrat</button>
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#999', fontStyle: 'italic' }}>Ma'lumotlar yo'q</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* CHOP ETISH UCHUN QISM */}
@@ -498,25 +473,9 @@ const KassirPanel = () => {
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
                 
-                @keyframes pulse {
-                    0% { opacity: 0.6; }
-                    50% { opacity: 1; }
-                    100% { opacity: 0.6; }
-                }
-                
-                @keyframes slideIn {
-                    from { transform: translateY(20px); opacity: 0; }
+                @keyframes slideDown {
+                    from { transform: translateY(-20px); opacity: 0; }
                     to { transform: translateY(0); opacity: 1; }
-                }
-
-                input:focus {
-                    border-color: #2f54ff !important;
-                    box-shadow: 0 0 0 4px rgba(47, 84, 255, 0.1);
-                    outline: none;
-                }
-
-                button:active {
-                    transform: scale(0.98);
                 }
 
                 @media print {
