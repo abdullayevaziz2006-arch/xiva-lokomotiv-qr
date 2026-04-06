@@ -1,0 +1,501 @@
+:root {
+  --admin-bg: #f5f6fa;
+  --sidebar-bg: #11152a;
+  --sidebar-active: #2f54ff;
+  --sidebar-text-hover: #ffffff;
+  --sidebar-text: #b0b4c8;
+  --card-bg: #ffffff;
+  --text-main: #2b2b2b;
+  --text-muted: #8b92a5;
+  --primary: #2f54ff;
+  --success: #1fcb80;
+  --danger: #ff4d4f;
+  --warning: #ffb400;
+  --border-radius: 12px;
+  --card-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  --header-bg: #ffffff;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', 'Roboto', 'Segoe UI', sans-serif;
+  background-color: var(--admin-bg);
+  color: var(--text-main);
+  overflow-x: hidden;
+}
+
+/* Layout */
+.admin-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Sidebar */
+.admin-sidebar {
+  width: 260px;
+  background-color: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-top-right-radius: 20px;
+  overflow: hidden;
+  box-shadow: 4px 0 10px rgba(0,0,0,0.05);
+  z-index: 10;
+}
+
+.sidebar-logo {
+  padding: 25px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  margin-bottom: 15px;
+}
+.sidebar-logo .icon {
+  background: var(--primary);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: white;
+}
+.sidebar-logo-text {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: white;
+  line-height: 1.2;
+}
+.sidebar-logo-sub {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--sidebar-text);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px;
+  flex: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  color: var(--sidebar-text);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.nav-item:hover {
+  background-color: rgba(255,255,255,0.05);
+  color: var(--sidebar-text-hover);
+}
+
+.nav-item.active {
+  background-color: var(--sidebar-active);
+  color: white;
+}
+
+/* Sidebar footer */
+.sidebar-footer {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+.sidebar-footer .avatar {
+  background: #3c4266;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+}
+.sidebar-footer-info {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Main Content */
+.admin-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Header */
+.admin-header {
+  height: 70px;
+  padding: 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--admin-bg);
+}
+
+.header-date {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-btn:hover {
+  background: #e8eaef;
+  color: var(--text-main);
+}
+.btn-logout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--danger);
+  background: none;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+.btn-logout:hover {
+  background-color: rgba(255, 77, 79, 0.1);
+}
+
+/* Content Area */
+.admin-content {
+  flex: 1;
+  padding: 10px 40px 40px 40px;
+  overflow-y: auto;
+}
+
+/* Typography elements */
+.page-title {
+  font-size: 2.4rem;
+  font-weight: 800;
+  margin: 0;
+  color: var(--sidebar-bg); /* Dark navy */
+  letter-spacing: -0.5px;
+}
+.page-subtitle {
+  color: var(--text-muted);
+  margin-top: 5px;
+  margin-bottom: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Stat Cards Container */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 30px;
+}
+.stats-grid.top-row {
+  grid-template-columns: 1.5fr 1fr 1fr 1fr;
+}
+
+/* Glassy Stat Card */
+.stat-card {
+  background: var(--card-bg);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid rgba(0,0,0,0.03);
+}
+.stat-card .sc-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.stat-card .sc-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stat-card .sc-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--sidebar-bg);
+  margin-top: 15px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.stat-card .sc-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Table styles */
+.admin-table-container {
+  background: var(--card-bg);
+  border-radius: var(--border-radius);
+  box-shadow: var(--card-shadow);
+  padding: 20px;
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th {
+  text-align: left;
+  padding: 15px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--admin-bg);
+}
+
+.admin-table td {
+  padding: 15px;
+  border-bottom: 1px solid var(--admin-bg);
+  color: var(--text-main);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* Buttons */
+.btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+.btn-primary:hover {
+  background: #2040d6;
+}
+.btn-success { background: rgba(31,203,128,0.1); color: var(--success); }
+.btn-danger { background: rgba(255,77,79,0.1); color: var(--danger); }
+.btn-warning { background: rgba(255,180,0,0.1); color: #d09300; }
+
+/* =====================================================
+   MOBILE HAMBURGER BUTTON (har doim ko'rinadi)
+   ===================================================== */
+.mobile-menu-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  color: var(--text-main);
+  font-size: 1.5rem;
+  line-height: 1;
+  transition: background 0.2s;
+}
+.mobile-menu-btn:hover {
+  background: rgba(0,0,0,0.05);
+}
+
+/* Sidebar overlay (mobilda ochilganda fonni qoraytirish) */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 9;
+}
+.sidebar-overlay.open {
+  display: block;
+}
+
+/* =====================================================
+   TABLET (max-width: 1024px)
+   ===================================================== */
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stats-grid.top-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .admin-content {
+    padding: 10px 20px 30px 20px;
+  }
+}
+
+/* =====================================================
+   MOBILE (max-width: 768px)
+   ===================================================== */
+@media (max-width: 768px) {
+  /* Layout: column instead of row */
+  .admin-layout {
+    flex-direction: column;
+    overflow: visible;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  /* Sidebar: Telefonda chap tomonda yashirin turadi */
+  .admin-sidebar {
+    position: fixed;
+    top: 0;
+    left: -280px;
+    height: 100vh;
+    width: 260px;
+    z-index: 10;
+    transition: left 0.3s ease;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 20px;
+  }
+  .admin-sidebar.mobile-open {
+    left: 0;
+    box-shadow: 6px 0 30px rgba(0,0,0,0.3);
+  }
+
+  /* Main area takes full width */
+  .admin-main {
+    width: 100%;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  /* Header: Hamburger tugmasi chiqadi */
+  .admin-header {
+    padding: 0 15px;
+    height: 60px;
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 8;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Content padding */
+  .admin-content {
+    padding: 10px 12px 30px 12px;
+  }
+
+  /* Stats grid: 2 ta ustun */
+  .stats-grid,
+  .stats-grid.top-row {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 15px;
+  }
+
+  /* Stat card: kichikroq */
+  .stat-card {
+    padding: 14px;
+  }
+  .stat-card .sc-value {
+    font-size: 1.5rem;
+    margin-top: 10px;
+  }
+
+  /* Page title */
+  .page-title {
+    font-size: 1.5rem;
+  }
+
+  /* Table: horizontal scroll */
+  .admin-table-container {
+    padding: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .admin-table {
+    min-width: 550px;
+  }
+  .admin-table th,
+  .admin-table td {
+    padding: 10px 8px;
+    font-size: 0.8rem;
+  }
+
+  /* Buttons: touch-friendly */
+  .btn {
+    padding: 10px 14px;
+    font-size: 0.85rem;
+  }
+
+  /* Page subtitle: column layout */
+  .page-subtitle {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 15px;
+  }
+}
+
+/* =====================================================
+   SMALL MOBILE (max-width: 480px)
+   ===================================================== */
+@media (max-width: 480px) {
+  .stats-grid,
+  .stats-grid.top-row {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .stat-card .sc-value {
+    font-size: 1.3rem;
+  }
+  .admin-content {
+    padding: 8px 8px 24px 8px;
+  }
+}
