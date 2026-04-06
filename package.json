@@ -1,0 +1,8 @@
+{
+  "name": "xiva-lokomotiv-root",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "cd backend && npm start",
+    "postinstall": "cd backend && npm install && npx prisma generate"
+  }
+}
