@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const { createAdapter, setupPrimary } = require('@socket.io/cluster-adapter');
 const http = require('http');
 const cluster = require('cluster');
+const urllib = require('urllib');
 const os = require('os');
 
 // CPU yadrolari soni (5000+ RPS uchun muhim)
