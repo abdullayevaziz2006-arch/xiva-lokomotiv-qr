@@ -712,7 +712,7 @@ app.post('/api/terminals/test', async (req, res) => {
         const baseUrl = `http://${cleanIp}:${port || 80}/ISAPI`;
         const authString = `${username}:${password}`;
         
-        const response = await request(`${baseUrl}/System/deviceInfo?format=json`, {
+        const response = await urllib.request(`${baseUrl}/System/deviceInfo?format=json`, {
             method: 'GET',
             digestAuth: authString
         });
