@@ -36,6 +36,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         {/* Asosiy Yo'naltirish (Rolga qarab) */}
         <Route element={<ProtectedRoute allowedRoles={['kassir', 'admin', 'tadbirkor']} />}>
             <Route path="/" element={<RootRedirect />} />
+            <Route path="/chipta" element={<KassirPanel />} />
         </Route>
         
         {/* Admin Router (Faqat Admin va Tadbirkor kira oladi) */}
