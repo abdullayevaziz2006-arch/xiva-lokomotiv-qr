@@ -45,7 +45,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         {/* Asosiy Yo'naltirish */}
         <Route element={<ProtectedRoute allowedRoles={['kassir', 'admin', 'tadbirkor']} />}>
             <Route path="/" element={<RootRedirect />} />
-            <Route path="/chipta" element={<KassirPanel />} />
+            
+            {/* Chipta sotish faqat kassa domenida ishlaydi */}
+            {isKassaDomain && <Route path="/chipta" element={<KassirPanel />} />}
         </Route>
         
         {/* Admin Router (Kassa domenida yopib qo'yiladi) */}
@@ -62,8 +64,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           </Route>
         )}
 
-        {/* Agar kassa domenida admin yo'liga kirsa, login-ga qaytarish */}
-        {isKassaDomain && <Route path="/admin/*" element={<Navigate to="/login" replace />} />}
+        {/* Agar kassa domenida admin yoki boshqa yo'llarga kirsa, orqaga qaytarish */}
+        {isKassaDomain && (
+          <>
+            <Route path="/admin/*" element={<Navigate to="/" replace />} />
+            <Route path="/chipta/*" element={<Navigate to="/chipta" replace />} />
+          </>
+        )}
         
         {/* Noma'lum sahifalar uchun yo'naltirish */}
         <Route path="*" element={<Navigate to="/" replace />} />

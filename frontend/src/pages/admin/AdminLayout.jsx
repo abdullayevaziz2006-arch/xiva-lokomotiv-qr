@@ -11,7 +11,6 @@ const AdminLayout = () => {
 
     const menuItems = [
         { path: '/admin', name: "Dashbord", icon: <LayoutDashboard size={20} /> },
-        { path: '/chipta', name: "Chipta Sotish", icon: <div style={{ fontSize: '20px' }}>🎫</div> },
         { path: '/admin/carousels', name: "O'yingohlar", icon: <Target size={20} /> },
         { path: '/admin/cashiers', name: "Kassirlar", icon: <Users size={20} /> },
         { path: '/admin/reports', name: "Hisobot", icon: <PieChart size={20} /> },
