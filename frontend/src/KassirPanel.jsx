@@ -229,7 +229,7 @@ const KassirPanel = () => {
                                         value={customerName} 
                                         onChange={e => setCustomerName(e.target.value)}
                                         placeholder="Ismni kiriting..."
-                                        style={{ width: '94%', padding: '14px 18px', borderRadius: '14px', border: '2px solid #f0f2f7', fontSize: '1rem', outline: 'none' }}
+                                        style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '2px solid #f0f2f7', fontSize: '1rem', outline: 'none' }}
                                     />
                                 </div>
                                 <div style={{ marginBottom: '24px' }}>
@@ -261,7 +261,7 @@ const KassirPanel = () => {
                                     {/* MOBILE: CUSTOM MULTI-SELECT STYLE */}
                                     <div className="carousel-select-mobile" style={{ display: 'none' }}>
                                         <div style={{ 
-                                            width: '94%',
+                                            width: '100%',
                                             padding: '14px', 
                                             borderRadius: '14px', 
                                             border: '2px solid #f0f2f7', 
@@ -463,16 +463,20 @@ const KassirPanel = () => {
 
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
+                
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                
                 .table-row:hover { background-color: #f7f9fd !important; }
                 
                 @media screen and (max-width: 768px) {
-                    .kassir-page { padding: 12px !important; }
-                    header { padding: 12px 16px !important; flex-direction: column; gap: 12px; align-items: flex-start !important; }
-                    header div:last-child { width: 100%; justify-content: space-between; display: flex; }
+                    .kassir-page { padding: 16px !important; }
+                    header { padding: 16px !important; flex-direction: column; gap: 12px; align-items: stretch !important; border-radius: 16px !important; }
+                    header div:last-child { justify-content: space-between; display: flex; }
                     .carousel-buttons { display: none !important; }
-                    .carousel-select-mobile { display: block !important; }
-                    main > section { padding: 20px !important; gap: 20px !important; }
+                    .carousel-select-mobile { display: block !important; width: 100% !important; }
+                    main > section { padding: 20px !important; gap: 20px !important; border-radius: 20px !important; }
                     div[style*="borderLeft"] { border-left: none !important; padding-left: 0 !important; border-top: 2px solid #f8f9fb; padding-top: 20px; }
+                    input[type="text"], select { width: 100% !important; }
                 }
 
                 @media print {
