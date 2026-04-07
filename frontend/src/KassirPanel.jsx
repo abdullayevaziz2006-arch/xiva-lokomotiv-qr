@@ -34,6 +34,13 @@ const KassirPanel = () => {
     const [refundCarousels, setRefundCarousels] = useState([]);
 
     const [carousels, setCarousels] = useState([]);
+    const [isDarkMode, setIsDarkMode] = useState(localStorage.getItem('kassirTheme') === 'dark');
+
+    const toggleTheme = () => {
+        const newTheme = !isDarkMode;
+        setIsDarkMode(newTheme);
+        localStorage.setItem('kassirTheme', newTheme ? 'dark' : 'light');
+    };
 
     const fetchRecentTickets = async () => {
         setHistoryLoading(true);
@@ -161,42 +168,57 @@ const KassirPanel = () => {
     };
 
     return (
-        <div className="kassir-page" style={{
-            background: '#f4f7fe',
+        <div className={`kassir-page ${isDarkMode ? 'dark-mode' : ''}`} style={{
             minHeight: '100vh',
             padding: '24px',
             fontFamily: "'Outfit', sans-serif"
         }}>
-            <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div className="kassir-container" style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 
                 {/* HEADER */}
-                <header className="no-print" style={{ 
+                <header className="kassir-header no-print" style={{ 
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center', 
-                    background: '#fff', 
                     padding: '16px 32px', 
                     borderRadius: '24px', 
                     boxShadow: '0 10px 30px rgba(0, 0, 0, 0.04)',
-                    border: '1px solid #edf2f7'
+                    border: '1px solid transparent'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                         <div style={{ width: '40px', height: '40px', background: '#2f54ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '20px' }}>
                             🎡
                         </div>
                         <div>
-                            <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#1a1a1a', letterSpacing: '-0.5px' }}>Xiva Lokomotiv</h1>
+                            <h1 className="brand-title" style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', letterSpacing: '-0.5px' }}>Xiva Lokomotiv</h1>
                             <span style={{ fontSize: '0.75rem', color: '#2f54ff', fontWeight: '700', textTransform: 'uppercase' }}>Kassir Paneli</span>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-                        <div style={{ textAlign: 'right' }}>
+                    <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                        <button 
+                            onClick={toggleTheme}
+                            style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                fontSize: '24px', 
+                                cursor: 'pointer',
+                                padding: '8px',
+                                borderRadius: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            {isDarkMode ? '🌞' : '🌙'}
+                        </button>
+                        <div className="user-info" style={{ textAlign: 'right' }}>
                             <span style={{ fontSize: '0.7rem', color: '#999', display: 'block', fontWeight: '600' }}>MAS'UL KASSIR</span>
-                            <span style={{ fontWeight: '800', color: '#1a1a1a' }}>{user?.fullName}</span>
+                            <span className="user-name" style={{ fontWeight: '800' }}>{user?.fullName}</span>
                         </div>
                         <button 
                             onClick={() => { localStorage.removeItem('user'); navigate('/login'); }} 
-                            style={{ padding: '10px 20px', background: '#fff', color: '#f03e3e', border: '2px solid #fff5f5', borderRadius: '14px', cursor: 'pointer', fontWeight: '700', transition: '0.2s' }}
+                            className="btn-exit"
+                            style={{ padding: '10px 20px', borderRadius: '14px', cursor: 'pointer', fontWeight: '700', transition: '0.2s' }}
                         >
                             Chiqish
                         </button>
@@ -207,19 +229,17 @@ const KassirPanel = () => {
                 <main className="no-print" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     
                     {/* TOP SECTION: SALES & SEARCH WRAPPER */}
-                    <div style={{ 
-                        background: '#fff', 
+                    <div className="kassir-main-card glass-card" style={{ 
                         borderRadius: '32px', 
                         padding: '32px', 
                         boxShadow: '0 20px 40px rgba(0,0,0,0.04)', 
-                        border: '1px solid #f0f2f7',
                         display: 'flex',
                         gap: '40px',
                         flexWrap: 'wrap'
                     }}>
                         {/* 1. SALES FORM */}
-                        <div style={{ flex: '1.2', minWidth: '350px' }}>
-                            <h2 style={{ margin: '0 0 24px 0', fontSize: '1.5rem', fontWeight: '800', color: '#1a1a1a' }}>Chipta Sotish</h2>
+                        <div className="sales-column" style={{ flex: '1.2', minWidth: '350px' }}>
+                            <h2 style={{ margin: '0 0 24px 0', fontSize: '1.5rem', fontWeight: '800' }}>Chipta Sotish</h2>
                             
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                                 <div style={{ marginBottom: '24px' }}>
@@ -229,7 +249,8 @@ const KassirPanel = () => {
                                         value={customerName} 
                                         onChange={e => setCustomerName(e.target.value)}
                                         placeholder="Ismni kiriting..."
-                                        style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '2px solid #f0f2f7', fontSize: '1rem', outline: 'none' }}
+                                        className="kassir-input"
+                                        style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', fontSize: '1rem', outline: 'none' }}
                                     />
                                 </div>
                                 <div style={{ marginBottom: '24px' }}>
@@ -244,13 +265,8 @@ const KassirPanel = () => {
                                                 style={{
                                                     padding: '12px 24px',
                                                     borderRadius: '16px',
-                                                    border: '2px solid ' + (selectedCarousels.includes(c.id) ? '#2f54ff' : '#f0f2f7'),
-                                                    background: selectedCarousels.includes(c.id) ? '#2f54ff' : '#fff',
-                                                    color: selectedCarousels.includes(c.id) ? '#fff' : '#444',
-                                                    fontWeight: '700',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                                    boxShadow: selectedCarousels.includes(c.id) ? '0 8px 15px rgba(47, 84, 255, 0.2)' : 'none'
+                                                    boxShadow: selectedCarousels.includes(c.id) ? '0 8px 15px rgba(47, 84, 255, 0.2)' : 'none',
+                                                    border: '2px solid ' + (selectedCarousels.includes(c.id) ? '#2f54ff' : 'var(--border)')
                                                 }}
                                             >
                                                 {c.name}
@@ -321,7 +337,7 @@ const KassirPanel = () => {
                         </div>
 
                         {/* 2. SEARCH & REFUND SECTION */}
-                        <div style={{ flex: '0.8', minWidth: '320px', borderLeft: '2px solid #f8f9fb', paddingLeft: '40px' }}>
+                        <div className="search-column" style={{ flex: '0.8', minWidth: '320px', paddingLeft: '40px' }}>
                             <h3 style={{ margin: '0 0 20px 0', fontSize: '1.1rem', fontWeight: '800' }}>Vozvrat & Qidiruv 🔍</h3>
                             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
                                 <input 
@@ -329,7 +345,8 @@ const KassirPanel = () => {
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
                                     placeholder="QR kod..."
-                                    style={{ flex: 1, padding: '14px', borderRadius: '14px', border: '2px solid #f0f2f7', fontSize: '0.9rem' }}
+                                    className="kassir-input"
+                                    style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '0.9rem', outline: 'none' }}
                                 />
                                 <button onClick={handleSearch} style={{ padding: '14px 20px', background: '#1a1a1a', color: '#fff', borderRadius: '14px', fontWeight: '700', border: 'none', cursor: 'pointer' }}>Izlash</button>
                             </div>
@@ -368,12 +385,11 @@ const KassirPanel = () => {
                     </div>
 
                     {/* BOTTOM SECTION: FULL-WIDTH HISTORY TABLE */}
-                    <div style={{ 
-                        background: '#fff', 
+                    <div className="history-card" style={{ 
                         borderRadius: '32px', 
                         padding: '32px', 
                         boxShadow: '0 10px 30px rgba(0,0,0,0.03)', 
-                        border: '1px solid #f0f2f7' 
+                        border: '1px solid transparent' 
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -464,27 +480,85 @@ const KassirPanel = () => {
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
                 
+                :root {
+                    --bg-page: ${isDarkMode ? '#0b0e14' : '#f4f7fe'};
+                    --bg-card: ${isDarkMode ? '#151921' : '#ffffff'};
+                    --text-main: ${isDarkMode ? '#ffffff' : '#1a1a1a'};
+                    --text-sub: ${isDarkMode ? '#a0aec0' : '#666666'};
+                    --border: ${isDarkMode ? '#2d3748' : '#f0f2f7'};
+                    --input-bg: ${isDarkMode ? '#1a202c' : '#fcfdfe'};
+                    --table-hover: ${isDarkMode ? '#1c2331' : '#f7f9fd'};
+                    --btn-exit-bg: ${isDarkMode ? '#2d1b1b' : '#fff5f5'};
+                }
+
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 
-                .table-row:hover { background-color: #f7f9fd !important; }
+                .kassir-page {
+                    background: var(--bg-page) !important;
+                    color: var(--text-main);
+                    transition: all 0.3s ease;
+                }
+
+                .kassir-header {
+                    background: var(--bg-card) !important;
+                    border: 1px solid var(--border) !important;
+                }
+
+                .brand-title { color: var(--text-main) !important; }
+                .user-name { color: var(--text-main) !important; }
                 
+                .btn-exit {
+                    background: var(--bg-card) !important;
+                    color: #f03e3e !important;
+                    border: 2px solid var(--btn-exit-bg) !important;
+                }
+
+                .glass-card {
+                    background: var(--bg-card) !important;
+                    border: 1px solid var(--border) !important;
+                    color: var(--text-main);
+                }
+
+                .kassir-input {
+                    background: var(--input-bg) !important;
+                    border: 2px solid var(--border) !important;
+                    color: var(--text-main) !important;
+                }
+
+                .kassir-input::placeholder { color: var(--text-sub); opacity: 0.7; }
+
+                .table-row:hover { background-color: var(--table-hover) !important; }
+                
+                .history-card {
+                    background: var(--bg-card) !important;
+                    border: 1px solid var(--border) !important;
+                }
+
+                table th { color: var(--text-sub) !important; }
+                table td { color: var(--text-main) !important; }
+
                 @media screen and (max-width: 768px) {
                     .kassir-page { padding: 12px !important; }
-                    header { padding: 16px !important; flex-direction: column; gap: 12px; align-items: stretch !important; border-radius: 16px !important; }
-                    header div:last-child { justify-content: space-between; display: flex; }
+                    .kassir-header { padding: 16px !important; flex-direction: column; gap: 12px; align-items: stretch !important; border-radius: 16px !important; }
+                    .header-right { justify-content: space-between; display: flex; width: 100%; }
                     .carousel-buttons { display: none !important; }
                     .carousel-select-mobile { display: block !important; width: 100% !important; }
-                    main > section { padding: 20px !important; gap: 20px !important; border-radius: 20px !important; }
+                    .kassir-main-card { padding: 20px !important; gap: 20px !important; border-radius: 20px !important; }
                     
-                    /* FIXED: Remove minWidth to prevent overflow on small screens */
-                    div[style*="minWidth: '350px'"], 
-                    div[style*="minWidth: '320px'"] { 
+                    /* FIXED: Explicitly handle columns on mobile to prevent overflow */
+                    .sales-column, .search-column { 
                         min-width: unset !important; 
                         flex: 1 1 100% !important; 
+                        padding: 0 !important;
+                        border: none !important;
+                    }
+                    
+                    .search-column {
+                        border-top: 2px solid var(--border) !important;
+                        padding-top: 24px !important;
                     }
 
-                    div[style*="borderLeft"] { border-left: none !important; padding-left: 0 !important; border-top: 2px solid #f8f9fb; padding-top: 20px; }
-                    input[type="text"], select { width: 100% !important; }
+                    input[type="text"], .kassir-input { width: 100% !important; }
                 }
 
                 @media print {
@@ -496,6 +570,8 @@ const KassirPanel = () => {
                         left: 0; 
                         top: 0; 
                         width: 100%;
+                        color: #000 !important;
+                        background: #fff !important;
                     }
                 }
             `}</style>
