@@ -469,12 +469,20 @@ const KassirPanel = () => {
                 .table-row:hover { background-color: #f7f9fd !important; }
                 
                 @media screen and (max-width: 768px) {
-                    .kassir-page { padding: 16px !important; }
+                    .kassir-page { padding: 12px !important; }
                     header { padding: 16px !important; flex-direction: column; gap: 12px; align-items: stretch !important; border-radius: 16px !important; }
                     header div:last-child { justify-content: space-between; display: flex; }
                     .carousel-buttons { display: none !important; }
                     .carousel-select-mobile { display: block !important; width: 100% !important; }
                     main > section { padding: 20px !important; gap: 20px !important; border-radius: 20px !important; }
+                    
+                    /* FIXED: Remove minWidth to prevent overflow on small screens */
+                    div[style*="minWidth: '350px'"], 
+                    div[style*="minWidth: '320px'"] { 
+                        min-width: unset !important; 
+                        flex: 1 1 100% !important; 
+                    }
+
                     div[style*="borderLeft"] { border-left: none !important; padding-left: 0 !important; border-top: 2px solid #f8f9fb; padding-top: 20px; }
                     input[type="text"], select { width: 100% !important; }
                 }
