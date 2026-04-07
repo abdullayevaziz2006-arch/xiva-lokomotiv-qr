@@ -14,12 +14,21 @@ import Carousels from './pages/admin/Carousels'
 import Cashiers from './pages/admin/Cashiers'
 import Reports from './pages/admin/Reports'
 
-// Yo'naltirish yordamchisi: Rolga qarab kerakli sahifaga yuboradi
+const isKassaDomain = window.location.hostname.includes('kassa');
+
+// Yo'naltirish yordamchisi: Rolga va Domenga qarab kerakli sahifaga yuboradi
 const RootRedirect = () => {
   const userString = localStorage.getItem('user');
   if (!userString) return <Navigate to="/login" replace />;
   
   const user = JSON.parse(userString);
+
+  // Agar kassa domenida bo'lsa, to'g'ridan-to'g'ri kassa paneliga
+  if (isKassaDomain) {
+    return <KassirPanel />;
+  }
+
+  // Admin domenida bo'lsa, rolga qarab
   if (user.role === 'admin' || user.role === 'tadbirkor') {
     return <Navigate to="/admin" replace />;
   }
@@ -33,24 +42,31 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         {/* Avtorizatsiya Oynasi */}
         <Route path="/login" element={<Login />} />
 
-        {/* Asosiy Yo'naltirish (Rolga qarab) */}
+        {/* Asosiy Yo'naltirish */}
         <Route element={<ProtectedRoute allowedRoles={['kassir', 'admin', 'tadbirkor']} />}>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/chipta" element={<KassirPanel />} />
         </Route>
         
-        {/* Admin Router (Faqat Admin va Tadbirkor kira oladi) */}
-        <Route element={<ProtectedRoute allowedRoles={['admin', 'tadbirkor']} />}>
-          <Route path="/admin" element={<AdminLayout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="terminals" element={<Terminals />} />
-            <Route path="carousels" element={<Carousels />} />
-            <Route path="cashiers" element={<Cashiers />} />
-            <Route path="reports" element={<Reports />} />
-            
-            <Route path="*" element={<Navigate to="/admin" replace />} />
+        {/* Admin Router (Kassa domenida yopib qo'yiladi) */}
+        {!isKassaDomain && (
+          <Route element={<ProtectedRoute allowedRoles={['admin', 'tadbirkor']} />}>
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="terminals" element={<Terminals />} />
+              <Route path="carousels" element={<Carousels />} />
+              <Route path="cashiers" element={<Cashiers />} />
+              <Route path="reports" element={<Reports />} />
+              <Route path="*" element={<Navigate to="/admin" replace />} />
+            </Route>
           </Route>
-        </Route>
+        )}
+
+        {/* Agar kassa domenida admin yo'liga kirsa, login-ga qaytarish */}
+        {isKassaDomain && <Route path="/admin/*" element={<Navigate to="/login" replace />} />}
+        
+        {/* Noma'lum sahifalar uchun yo'naltirish */}
+        <Route path="*" element={<Navigate to="/" replace />} />
 
       </Routes>
     </BrowserRouter>
