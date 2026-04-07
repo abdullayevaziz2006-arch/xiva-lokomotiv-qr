@@ -258,34 +258,41 @@ const KassirPanel = () => {
                                         ))}
                                     </div>
 
-                                    {/* MOBILE: MULTI-SELECT STYLE */}
+                                    {/* MOBILE: CUSTOM MULTI-SELECT STYLE */}
                                     <div className="carousel-select-mobile" style={{ display: 'none' }}>
-                                        <div style={{ position: 'relative' }}>
-                                            <select 
-                                                multiple
-                                                value={selectedCarousels}
-                                                onChange={(e) => {
-                                                    const values = Array.from(e.target.selectedOptions, option => parseInt(option.value));
-                                                    setSelectedCarousels(values);
-                                                }}
-                                                style={{ 
-                                                    width: '94%', 
-                                                    padding: '14px', 
-                                                    borderRadius: '14px', 
-                                                    border: '2px solid #f0f2f7', 
-                                                    background: '#fff',
-                                                    fontSize: '1rem',
-                                                    minHeight: '120px'
-                                                }}
-                                            >
-                                                {carousels.map(c => (
-                                                    <option key={c.id} value={c.id} style={{ padding: '8px' }}>
-                                                        {selectedCarousels.includes(c.id) ? '✅ ' : ''}{c.name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <p style={{ fontSize: '0.75rem', color: '#999', marginTop: '5px' }}>* Bir nechtasini tanlash uchun ustiga bosing</p>
+                                        <div style={{ 
+                                            width: '94%',
+                                            padding: '14px', 
+                                            borderRadius: '14px', 
+                                            border: '2px solid #f0f2f7', 
+                                            background: '#fff',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '8px',
+                                            maxHeight: '200px',
+                                            overflowY: 'auto'
+                                        }}>
+                                            {carousels.map(c => (
+                                                <div 
+                                                    key={c.id} 
+                                                    onClick={() => toggleCarouselSelection(c.id)}
+                                                    style={{
+                                                        padding: '10px 14px',
+                                                        borderRadius: '10px',
+                                                        background: selectedCarousels.includes(c.id) ? '#edf2ff' : '#fcfdfe',
+                                                        border: '1px solid ' + (selectedCarousels.includes(c.id) ? '#2f54ff' : '#eee'),
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    <span style={{ fontWeight: '600', color: selectedCarousels.includes(c.id) ? '#2f54ff' : '#444' }}>{c.name}</span>
+                                                    {selectedCarousels.includes(c.id) ? <span>✅</span> : <div style={{width: '18px', height: '18px', borderRadius: '50%', border: '1px solid #ddd'}}></div>}
+                                                </div>
+                                            ))}
                                         </div>
+                                        <p style={{ fontSize: '0.75rem', color: '#999', marginTop: '8px', paddingLeft: '5px' }}>* Kerakli o'yingohlarni belgilang</p>
                                     </div>
                                 </div>
 
@@ -459,8 +466,13 @@ const KassirPanel = () => {
                 .table-row:hover { background-color: #f7f9fd !important; }
                 
                 @media screen and (max-width: 768px) {
+                    .kassir-page { padding: 12px !important; }
+                    header { padding: 12px 16px !important; flex-direction: column; gap: 12px; align-items: flex-start !important; }
+                    header div:last-child { width: 100%; justify-content: space-between; display: flex; }
                     .carousel-buttons { display: none !important; }
                     .carousel-select-mobile { display: block !important; }
+                    main > section { padding: 20px !important; gap: 20px !important; }
+                    div[style*="borderLeft"] { border-left: none !important; padding-left: 0 !important; border-top: 2px solid #f8f9fb; padding-top: 20px; }
                 }
 
                 @media print {
