@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
-import { Activity, Users, Clock, CheckCircle, TrendingUp, Terminal, Layers, PieChart, AlertTriangle, Download } from 'lucide-react';
+import { Activity, Users, Clock, CheckCircle, TrendingUp, Terminal, Layers, PieChart, AlertTriangle, Download, RefreshCw } from 'lucide-react';
 import { API_URL } from '../../apiConfig';
 
 const Reports = () => {
@@ -9,12 +9,14 @@ const Reports = () => {
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
 
+    const user = JSON.parse(localStorage.getItem('user'));
+
     const fetchReports = async () => {
         try {
             setLoading(true);
             const [resCarousels, resCustomers] = await Promise.all([
-                axios.get(`${API_URL}/reports/carousels`),
-                axios.get(`${API_URL}/reports/customers`)
+                axios.get(`${API_URL}/reports/carousels?organizationId=${user?.organizationId}`),
+                axios.get(`${API_URL}/reports/customers?organizationId=${user?.organizationId}`)
             ]);
             setReports(resCarousels.data);
             setCustomers(resCustomers.data);
@@ -25,6 +27,16 @@ const Reports = () => {
         }
     };
 
+    const handleRetry = async (qrId) => {
+        try {
+            const res = await axios.post(`${API_URL}/qrcodes/${qrId}/retry`);
+            alert("Muvaffaqiyatli: Terminalga qayta yuklandi!");
+        } catch (error) {
+            console.error("Retry xatosi:", error);
+            alert("Xatolik: Terminal bilan bog'lanishda muammo.");
+        }
+    };
+
     useEffect(() => {
         fetchReports();
     }, []);
@@ -32,6 +44,7 @@ const Reports = () => {
     // Global hisoblashlar
     const totalSales = reports.reduce((acc, curr) => acc + curr.totalIssued, 0);
     const totalRefunds = reports.reduce((acc, curr) => acc + curr.refunded, 0);
+    const totalRevenue = reports.reduce((acc, curr) => acc + (curr.revenue || 0), 0);
     const topCarousel = reports.length > 0 ? reports[0] : null;
 
     // Excelga eksport qilish (Karusellar)
@@ -41,11 +54,13 @@ const Reports = () => {
             "Tadbirkor": r.entrepreneurName,
             "Sotilgan Biletlar (Jami)": r.totalIssued,
             "Minganlar (Skanerlangan)": r.usedCount,
-            "Vozvrat (Bekor qilingan)": r.refunded
+            "Vozvrat (Bekor qilingan)": r.refunded,
+            "Sof Foyda (UZS)": r.revenue
         })));
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Karusel_Hisoboti");
-        XLSX.writeFile(workbook, `Xiva_Karusel_Stats_${new Date().toLocaleDateString()}.xlsx`);
+        const orgName = user?.organizationName || 'SmartAccess';
+        XLSX.writeFile(workbook, `${orgName}_Karusel_Stats_${new Date().toLocaleDateString()}.xlsx`);
     };
 
     // Excelga eksport qilish (Mijozlar)
@@ -59,7 +74,8 @@ const Reports = () => {
         })));
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Journal");
-        XLSX.writeFile(workbook, `Xiva_Mijozlar_Jurnali_${new Date().toLocaleDateString()}.xlsx`);
+        const orgName = user?.organizationName || 'SmartAccess';
+        XLSX.writeFile(workbook, `${orgName}_Mijozlar_Jurnali_${new Date().toLocaleDateString()}.xlsx`);
     };
 
     return (
@@ -79,12 +95,12 @@ const Reports = () => {
                 </div>
 
                 <div className="stat-card">
-                    <div className="sc-header">Jami Biletlar (Qo'lga qlingan pul) <PieChart size={16} /></div>
-                    <div className="sc-value" style={{ color: 'var(--text-main)' }}>{totalSales} ta</div>
-                    <div className="sc-sub">Bugungacha sotilgan hamma kodlar</div>
+                    <div className="sc-header">Jami Tushum (Haqiqiy foyda) <PieChart size={16} /></div>
+                    <div className="sc-value" style={{ color: 'var(--success)' }}>{totalRevenue.toLocaleString()} <span style={{ fontSize: '0.9rem' }}>UZS</span></div>
+                    <div className="sc-sub">Barcha o'yingohlardan tushgan sof pul</div>
                 </div>
 
-                <div className="stat-card" style={{ border: '1px solid rgba(255,77,79,0.3)' }}>
+                <div className="stat-card" style={{ border: '1px solid var(--danger)', opacity: 0.9 }}>
                     <div className="sc-header" style={{ color: 'var(--danger)' }}>Brak / Qaytarilganlar <AlertTriangle size={16} /></div>
                     <div className="sc-value" style={{ color: 'var(--danger)' }}>{totalRefunds} ta</div>
                     <div className="sc-sub">Vozvrat orqali qoplonmay qolganlar</div>
@@ -103,14 +119,15 @@ const Reports = () => {
                         <tr>
                             <th>O'yingoh Nomi</th>
                             <th>Mas'ul Tadbirkor</th>
-                            <th style={{ textAlign: 'center' }}>Sotildi (Jami)</th>
+                            <th style={{ textAlign: 'center' }}>Sotildi (Odam)</th>
                             <th style={{ textAlign: 'center' }}>Minganlar ✅</th>
+                            <th style={{ textAlign: 'center' }}>Qolgan Navbatlar ⏳</th>
                             <th style={{ textAlign: 'center' }}>Vozvrat ❌</th>
-                            <th style={{ textAlign: 'right' }}>Sof foyda</th>
+                            <th style={{ textAlign: 'right' }}>Sof foyda (UZS)</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {loading ? <tr><td colSpan="6" style={{ textAlign: 'center' }}>Hisob-kitob qilinmoqda...</td></tr> : 
+                        {loading ? <tr><td colSpan="7" style={{ textAlign: 'center' }}>Hisob-kitob qilinmoqda...</td></tr> : 
                         reports.map((r, index) => (
                             <tr key={r.id}>
                                 <td style={{ fontWeight: 600 }}>
@@ -120,9 +137,10 @@ const Reports = () => {
                                 <td>{r.entrepreneurName}</td>
                                 <td style={{ textAlign: 'center' }}>{r.totalIssued} ta</td>
                                 <td style={{ textAlign: 'center', color: 'var(--success)', fontWeight: 'bold' }}>{r.usedCount} ✅</td>
-                                <td style={{ textAlign: 'center', color: 'var(--danger)' }}>{r.refunded} ❌</td>
-                                <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
-                                    {r.validNet} ta
+                                <td style={{ textAlign: 'center', color: 'var(--primary)', fontWeight: '700' }}>{r.remaining} ⏳</td>
+                                <td style={{ textAlign: 'center', color: 'var(--admin-text-muted)' }}>{r.refunded} ❌</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--success)', fontSize: '1.1rem' }}>
+                                    {r.revenue?.toLocaleString()} sum
                                 </td>
                             </tr>
                         ))}
@@ -134,7 +152,7 @@ const Reports = () => {
             <div className="admin-table-container">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                     <h3 style={{ margin: 0 }}>Mijozlar Jurnali 📋</h3>
-                    <button onClick={exportToExcelCustomers} className="btn" style={{ background: '#1a1a1a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button onClick={exportToExcelCustomers} className="btn-primary" style={{ background: 'var(--admin-text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Download size={16}/> Jurnalni Excelga olish
                     </button>
                 </div>
@@ -146,6 +164,7 @@ const Reports = () => {
                             <th>Qaysi O'yingohlarga kirdi?</th>
                             <th>Holati</th>
                             <th>Kassir xodim</th>
+                            <th style={{ textAlign: 'center' }}>Amallar</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -155,16 +174,17 @@ const Reports = () => {
                                 <td>{index + 1}</td>
                                 <td>
                                     <strong>{c.customerName}</strong><br/>
-                                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{c.customerPhone}</span>
+                                    <span style={{ fontSize: '0.85rem', color: 'var(--admin-text-muted)' }}>{c.customerPhone}</span>
                                 </td>
                                 <td>
                                     {c.carousels.length > 0 ? (
                                         <ul style={{ margin: 0, paddingLeft: '15px', fontSize: '0.9rem' }}>
                                             {c.carousels.map((rel, i) => (
                                                 <li key={i} style={{ 
-                                                    color: rel.status === -1 ? '#f03e3e' : rel.status === 1 ? '#37b24d' : 'inherit', 
+                                                    color: rel.status === -1 ? 'var(--danger)' : rel.status === 1 ? 'var(--success)' : 'inherit', 
                                                     textDecoration: rel.status === -1 ? 'line-through' : 'none',
-                                                    fontWeight: rel.status === 1 ? '700' : 'normal'
+                                                    fontWeight: rel.status === 1 ? '700' : 'normal',
+                                                    opacity: rel.status === -1 ? 0.6 : 1
                                                 }}>
                                                     {rel.name} 
                                                     {rel.status === -1 && ' (Vozvrat ❌)'}
@@ -174,20 +194,41 @@ const Reports = () => {
                                             ))}
                                         </ul>
                                     ) : (
-                                        <span style={{ color: 'var(--text-muted)' }}>Mavjud emas</span>
+                                        <span style={{ color: 'var(--admin-text-muted)' }}>Mavjud emas</span>
                                     )}
                                 </td>
                                 <td>
                                     {c.status === 1 ? (
-                                        <span style={{ color: 'white', background: 'var(--success)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>MUVAFFARIYATLI</span>
+                                        <span className="status-pill success">MUVAFFARIYATLI</span>
                                     ) : c.status === -1 ? (
-                                        <span style={{ color: 'white', background: 'var(--danger)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>BEKOR QILINGAN</span>
+                                        <span className="status-pill danger">BEKOR QILINGAN</span>
                                     ) : (
-                                        <span style={{ color: 'white', background: 'orange', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700' }}>KUTILMOQDA</span>
+                                        <span className="status-pill warning">KUTILMOQDA</span>
                                     )}
                                 </td>
 
-                                <td>{c.cashierName}<br/><span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(c.createdAt).toLocaleString()}</span></td>
+                                <td>{c.cashierName}<br/><span style={{ fontSize: '0.8rem', color: 'var(--admin-text-muted)' }}>{new Date(c.createdAt).toLocaleString()}</span></td>
+                                <td style={{ textAlign: 'center' }}>
+                                    <button 
+                                        onClick={() => handleRetry(c.id)}
+                                        className="btn-sync"
+                                        title="Terminalga qayta yuklash"
+                                        style={{ 
+                                            background: 'rgba(139, 92, 246, 0.1)', 
+                                            border: '1px solid #8b5cf6', 
+                                            color: '#8b5cf6',
+                                            padding: '6px 10px',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            margin: '0 auto'
+                                        }}
+                                    >
+                                        <RefreshCw size={14} /> Sync
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                         {customers.length === 0 && !loading && <tr><td colSpan="5" style={{textAlign: 'center'}}>Mijozlar tarixi bo'sh</td></tr>}

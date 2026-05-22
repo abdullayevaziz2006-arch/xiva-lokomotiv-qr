@@ -5,14 +5,22 @@ import KassirPanel from './KassirPanel'
 
 // Admin Layout va Pages
 import Login from './pages/auth/Login'
+import Register from './pages/auth/Register'
 import ProtectedRoute from './pages/auth/ProtectedRoute'
 
 import AdminLayout from './pages/admin/AdminLayout'
 import Dashboard from './pages/admin/Dashboard'
 import Terminals from './pages/admin/Terminals'
 import Carousels from './pages/admin/Carousels'
+import StaffAttendance from './pages/admin/StaffAttendance'
 import Cashiers from './pages/admin/Cashiers'
 import Reports from './pages/admin/Reports'
+import OrgLogin from './pages/auth/OrgLogin'
+import './global.css'
+
+// Theme Initialization
+const savedTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+document.documentElement.setAttribute('data-theme', savedTheme);
 
 const isKassaDomain = window.location.hostname.includes('kassa');
 
@@ -39,38 +47,28 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Avtorizatsiya Oynasi */}
+        {/* Asosiy Landing va Register */}
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/o/:slug" element={<OrgLogin />} />
 
-        {/* Asosiy Yo'naltirish */}
+        {/* Chipta sotish (Kassir) - Protected */}
         <Route element={<ProtectedRoute allowedRoles={['kassir', 'admin', 'tadbirkor']} />}>
-            <Route path="/" element={<RootRedirect />} />
-            
-            {/* Chipta sotish faqat kassa domenida ishlaydi */}
-            {isKassaDomain && <Route path="/chipta" element={<KassirPanel />} />}
+            <Route path="/chipta" element={<KassirPanel />} />
         </Route>
         
-        {/* Admin Router (Kassa domenida yopib qo'yiladi) */}
-        {!isKassaDomain && (
-          <Route element={<ProtectedRoute allowedRoles={['admin', 'tadbirkor']} />}>
-            <Route path="/admin" element={<AdminLayout />}>
-              <Route index element={<Dashboard />} />
-              <Route path="terminals" element={<Terminals />} />
-              <Route path="carousels" element={<Carousels />} />
-              <Route path="cashiers" element={<Cashiers />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="*" element={<Navigate to="/admin" replace />} />
-            </Route>
+        {/* Admin Router */}
+        <Route element={<ProtectedRoute allowedRoles={['admin', 'tadbirkor']} />}>
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="terminals" element={<Terminals />} />
+            <Route path="carousels" element={<Carousels />} />
+            <Route path="cashiers" element={<Cashiers />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
-        )}
-
-        {/* Agar kassa domenida admin yoki boshqa yo'llarga kirsa, orqaga qaytarish */}
-        {isKassaDomain && (
-          <>
-            <Route path="/admin/*" element={<Navigate to="/" replace />} />
-            <Route path="/chipta/*" element={<Navigate to="/chipta" replace />} />
-          </>
-        )}
+        </Route>
         
         {/* Noma'lum sahifalar uchun yo'naltirish */}
         <Route path="*" element={<Navigate to="/" replace />} />

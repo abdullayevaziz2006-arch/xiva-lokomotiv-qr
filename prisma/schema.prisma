@@ -4,66 +4,122 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id            Int            @id @default(autoincrement())
+  name          String
+  slug          String         @unique // Masalan: xiva-park, gold-gym
+  logoUrl       String?
+  trialEndsAt   DateTime       @default(now())
+  status        String         @default("active") // active, suspended, expired
+  createdAt     DateTime       @default(now())
+
+  // Boshqa jadvallar bilan bog'liqlik
+  users         User[]
+  terminals     Terminal[]
+  carousels     Carousel[]
+  qrCodes       QRCode[]
+  staff         Staff[]
 }
 
 model User {
-  id            Int            @id @default(autoincrement())
-  fullName      String
-  phone         String         @unique
-  passwordHash  String
-  role          String         // admin, tadbirkor, kassir
-  createdAt     DateTime       @default(now())
-  createdCodes  QRCode[]       @relation("CreatedBy")
-  carousels     Carousel[]
+  id             Int            @id @default(autoincrement())
+  fullName       String
+  phone          String         @unique
+  passwordHash   String
+  role           String         // admin, tadbirkor, kassir, superadmin
+  organizationId Int
+  isOwner        Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  createdCodes   QRCode[]       @relation("CreatedBy")
+  carousels      Carousel[]
 }
 
 model Terminal {
-  id         Int        @id @default(autoincrement())
-  name       String
-  ipAddress  String
-  port       String     @default("80")
-  username   String
-  password   String     // password shifrlangan holatda saqlanishi tavsiya qilinadi
-  status     String     @default("active")
-  carousels  Carousel[]
+  id             Int        @id @default(autoincrement())
+  name           String
+  ipAddress      String
+  port           String     @default("80")
+  username       String
+  password       String
+  status         String     @default("active")
+  organizationId Int
+  
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  carousels      Carousel[]
 }
 
 model Carousel {
   id             Int        @id @default(autoincrement())
   name           String
   description    String?
+  price          Int        @default(0)
   entrepreneurId Int
   terminalId     Int
+  organizationId Int
 
+  organization   Organization @relation(fields: [organizationId], references: [id])
   entrepreneur   User       @relation(fields: [entrepreneurId], references: [id])
   terminal       Terminal   @relation(fields: [terminalId], references: [id])
   qrCodes        QRCodeCarousel[]
 }
 
 model QRCode {
-  id         Int      @id @default(autoincrement())
-  qrString   String   @unique
-  status     Int      @default(0) // 0-yaratildi, -1 bekor qilindi
-  expiresAt  DateTime
-  createdBy  Int
-  customerName String?  // AES-256 bilan shifrlangan ism-familiya
-  customerPhone String? // AES-256 bilan shifrlangan telefon raqami
-  createdAt  DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  qrString       String   @unique
+  status         Int      @default(0) // 0-yaratildi, -1 bekor qilindi
+  expiresAt      DateTime
+  createdBy      Int
+  organizationId Int
+  customerName   String?  // AES-256 shifrlangan
+  customerPhone  String? 
+  quantity       Int      @default(1)
+  createdAt      DateTime @default(now())
 
-  creator    User     @relation("CreatedBy", fields: [createdBy], references: [id])
-  carousels  QRCodeCarousel[]
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  creator        User     @relation("CreatedBy", fields: [createdBy], references: [id])
+  carousels      QRCodeCarousel[]
 }
 
 model QRCodeCarousel {
   id         Int      @id @default(autoincrement())
   qrCodeId   Int
   carouselId Int
-  status     Int      @default(0) // 0 - Aktiv (kirmagan), 1 - Ishlatilgan, -1 - Vozvrat qilingan (Refund)
-  usedAt     DateTime? // qachon kirgani
+  quantity   Int      @default(1)
+  usedCount  Int      @default(0)
+  status     Int      @default(0) // 0-Aktiv, 1-Ishlatilgan, -1-Vozvrat
+  usedAt     DateTime?
 
-  qrCode   QRCode   @relation(fields: [qrCodeId], references: [id], onDelete: Cascade)
-  carousel Carousel @relation(fields: [carouselId], references: [id], onDelete: Cascade)
+  qrCode     QRCode   @relation(fields: [qrCodeId], references: [id], onDelete: Cascade)
+  carousel   Carousel @relation(fields: [carouselId], references: [id], onDelete: Cascade)
 
   @@unique([qrCodeId, carouselId])
+}
+
+// --- NEW: SmartStaff (SKUD) Models ---
+
+model Staff {
+  id             Int          @id @default(autoincrement())
+  fullName       String
+  employeeId     String       @unique // Terminaldagi employeeNoString
+  organizationId Int
+  status         String       @default("active")
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  attendance     Attendance[]
+}
+
+model Attendance {
+  id             Int      @id @default(autoincrement())
+  staffId        Int
+  timestamp      DateTime @default(now())
+  direction      String   // IN, OUT
+  terminalId     Int?
+  
+  staff          Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
 }

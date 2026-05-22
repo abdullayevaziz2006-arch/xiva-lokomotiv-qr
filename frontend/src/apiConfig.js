@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 const getApiBaseUrl = () => {
     // Railway (Production) uchun: VITE_API_URL environment variable
     if (import.meta.env.VITE_API_URL) {
@@ -10,3 +12,9 @@ const getApiBaseUrl = () => {
 
 export const API_BASE_URL = getApiBaseUrl();
 export const API_URL = `${API_BASE_URL}/api`;
+
+const api = axios.create({
+    baseURL: API_URL
+});
+
+export default api;

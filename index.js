@@ -11,6 +11,7 @@ const http = require('http');
 const cluster = require('cluster');
 const urllib = require('urllib');
 const os = require('os');
+const fs = require('fs');
 
 // CPU yadrolari soni (5000+ RPS uchun muhim)
 const numCPUs = os.cpus().length;
@@ -59,8 +60,22 @@ app.use(cors({
 app.use(express.json({ limit: '50kb' }));
 app.use(express.urlencoded({ extended: true, limit: '50kb' }));
 
-// Webhook uchun juda qattiq cheklov (Rasm va og'ir binary data kirmasligi uchun)
-app.use('/api/events', express.text({ type: '*/*', limit: '10kb' }));
+// Webhook uchun ruxsat: Hikvision rasmlar bilan katta ma'lumot yuborishi mumkin (2mb gacha)
+app.use('/api/events', express.text({ type: '*/*', limit: '2mb' }));
+
+// Deep Diagnostic Logger (Vaqtinchalik muammoni topish uchun)
+app.use((req, res, next) => {
+    const logFile = 'debug.log';
+    const logMsg = `[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}\n`;
+    fs.appendFileSync(logFile, logMsg);
+
+    if (req.url.includes('/api/events')) {
+        // Body ni ham yozamiz (Tahlil uchun ko'proq ma'lumot: 2000 belgi)
+        const bodyPreview = (typeof req.body === 'string') ? req.body : JSON.stringify(req.body);
+        fs.appendFileSync(logFile, `[BODY] ${bodyPreview?.substring(0, 2000)}\n---\n`);
+    }
+    next();
+});
 
 // Payloas Too Large (413) xatosini ushlash (Server o'chib qolmasligi uchun)
 app.use((err, req, res, next) => {
@@ -83,6 +98,44 @@ app.get('/api/health', (req, res) => {
 
 // AES-256 shifrlash sozlamalari
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // 32 baytli maxfiy kalit
+// Terminal vaqtini avtomatik sinxronizatsiya qilish (Vaqt farqi tufayli biletlar ishlamay qolmasligi uchun)
+async function syncTerminalTime(terminal) {
+    if (!terminal || !terminal.ipAddress) return;
+    const baseUrl = `http://${terminal.ipAddress}:${terminal.port || 80}`;
+    const now = new Date();
+    // YYYY-MM-DDTHH:mm:ss formatida (Hikvision standarti)
+    const localTime = now.getFullYear() + '-' + 
+                      String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                      String(now.getDate()).padStart(2, '0') + 'T' + 
+                      String(now.getHours()).padStart(2, '0') + ':' + 
+                      String(now.getMinutes()).padStart(2, '0') + ':' + 
+                      String(now.getSeconds()).padStart(2, '0');
+    
+    // Bizga kerak bo'lgan vaqt zonasi (O'zbekiston uchun CST-5 yoki shunga o'xshash)
+    // Lekin ko'p terminallar manual vaqtni qabul qiladi
+    const timeXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Time version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
+    <timeMode>manual</timeMode>
+    <localTime>${localTime}</localTime>
+</Time>`;
+
+    try {
+        await hikvisionRequest('PUT', `${baseUrl}/ISAPI/System/time`, terminal.username, terminal.password, timeXml);
+        const msg = `[Terminal Sync] Vaqt muvaffaqiyatli yangilandi: ${terminal.ipAddress} -> ${localTime}`;
+        console.log(msg);
+        fs.appendFileSync('debug.log', `${msg}\n`);
+    } catch (err) {
+        const errMsg = `[Terminal Sync] Vaqtni yangilashda xato: ${terminal.ipAddress} | ${err.message}`;
+        console.error(errMsg);
+        fs.appendFileSync('debug.log', `${errMsg}\n`);
+    }
+}
+
+// QrCode generator yordamchi funksiya
+function generateUniqueCode() {
+  // Faqat raqamli bo'lgani Hikvision (343, 671 va h.k) uchun eng xavfsiz va universal format
+  return String(Math.floor(1000000000 + Math.random() * 9000000000));
+}
 const IV_LENGTH = 16; 
 
 function encrypt(text) {
@@ -114,16 +167,40 @@ function decrypt(text) {
   }
 }
 
-// QrCode generator yordamchi funksiya
-function generateUniqueCode() {
-  // Masalan: QR-A7F3K9M2 ko'rinishida (11 belgili)
-  return 'QR-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+// Middleware: Abunentlik holatini tekshirish (Blocker)
+async function checkSubscription(req, res, next) {
+    try {
+        const organizationId = req.body?.organizationId || req.query?.organizationId || req.params?.organizationId;
+        if (!organizationId) return next();
+
+        const org = await prisma.organization.findUnique({ where: { id: Number(organizationId) } });
+        if (!org) return res.status(404).json({ error: "Tashkilot topilmadi" });
+
+        const now = new Date();
+        const trialExpired = now > org.trialEndsAt;
+
+        // Agar muddat tugagan bo'lsa va bu o'qish (GET) so'rovi bo'lmasa, bloklaymiz
+        // (Admin statslarni ko'rishi mumkin lekin o'zgartira olmaydi yoki Kassir sotolmaydi)
+        if (trialExpired && req.method !== 'GET') {
+            return res.status(402).json({ 
+                error: "Sizning demo muddatingiz tugadi. Tizim bloklangan.",
+                expired: true,
+                trialEndsAt: org.trialEndsAt
+            });
+        }
+        
+        next();
+    } catch (e) {
+        next();
+    }
 }
 
 // Vaqt formatlovchi (Hikvision formati: YYYY-MM-DDTHH:mm:ss)
 function formatHikvisionTime(date) {
-  // ISO-8601 formati "T" harfi bilan Hikvision uchun ideal ishlaydi.
-  return date.toISOString().split('.')[0];
+  // Hikvision (343 va 671) uchun eng xavfsiz format: YYYY-MM-DDTHH:mm:ss
+  // Bunda vaqt zonalarsiz (Z yoki +05:00 siz) lokal vaqt yuborilishi shart.
+  const localDate = new Date(date.getTime() + (5 * 60 * 60 * 1000)); // +5 soat (UZ)
+  return localDate.toISOString().split('.')[0]; 
 }
 
 // Hikvision maxsus so'rov yuboruvchi log funksiyasi
@@ -131,28 +208,46 @@ async function hikvisionRequest(method, url, username, password, data = null) {
     const authString = `${username}:${password}`;
     
     console.log(`[Hikvision] So'rov: ${method} ${url}`);
-    if (data) console.log(`[Hikvision] JSON data:`, JSON.stringify(data));
+    
+    const isXml = typeof data === 'string' && (data.trim().startsWith('<?xml') || data.trim().startsWith('<'));
     
     const options = {
         method: method,
         digestAuth: authString,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': isXml ? 'application/xml' : 'application/json' },
         dataType: 'text',
-        timeout: 30000
+        timeout: 20000 
     };
     
     if (data) {
-        options.data = JSON.stringify(data);
+        options.data = isXml ? data : JSON.stringify(data);
+        // Deep Logging for diagnostics
+        fs.appendFileSync('debug.log', `[Terminal Req] ${method} ${url}\n[Data] ${options.data.length > 500 ? options.data.substring(0, 500) + '...' : options.data}\n---\n`);
     }
     
     try {
-        const response = await request(url, options);
+        const response = await urllib.request(url, options);
+        const bodyStr = response.data.toString();
         console.log(`[Hikvision] Javob status: ${response.status}`);
-        console.log(`[Hikvision] Javob data:`, response.data.toString());
+        console.log(`[Hikvision] Javob data:`, bodyStr);
         
         if (response.status !== 200) {
-            throw new Error(`HTTP ${response.status}: ${response.data.toString()}`);
+            throw new Error(`HTTP ${response.status}: ${bodyStr}`);
         }
+
+        // Ichki ISAPI statusCode ni tekshirish
+        try {
+            const body = JSON.parse(bodyStr);
+            const status = body.ResponseStatus?.statusCode || body.status || 1;
+            if (status !== 1 && status !== "OK" && status !== 200) {
+                const errMsg = body.ResponseStatus?.statusString || body.message || "ISAPI Error";
+                throw new Error(`${errMsg} (Code: ${status})`);
+            }
+        } catch (e) {
+            // Agar JSON emas bo'lsa yoki statusCode 1 bo'lsa o'tib ketadi
+            if (e.message.includes("Code:")) throw e;
+        }
+
         return response.data;
     } catch (error) {
         console.error(`[Hikvision] Xatolik:`, error.message);
@@ -165,7 +260,19 @@ async function uploadQRToTerminal(terminalConfig, qrCodeData, userId, expiresAt,
     const cleanIp = terminalConfig.ipAddress.split(':')[0];
     const baseUrl = `http://${cleanIp}:${terminalConfig.port || 80}/ISAPI`;
     const beginTime = formatHikvisionTime(new Date(Date.now() - 5 * 60 * 1000));
+    // Card ID faqat raqam bo'lishi shart. Agar raqam bo'lmasa UserId ni ishlatamiz (Fallback)
+    const cardId = qrCodeData.replace(/\D/g, '').substring(0, 20) || userId; 
     
+    // 0. ESKI FOYDALANUVCHINI O'CHIRISH (Tozalash)
+    try {
+        await hikvisionRequest('PUT', `${baseUrl}/AccessControl/UserInfo/Delete?format=json`, terminalConfig.username, terminalConfig.password, {
+            UserInfoDetail: { employeeNoList: [{ employeeNo: userId }] }
+        });
+        console.log(`[Hikvision] Eski user o'chirildi (ID: ${userId})`);
+    } catch (e) {
+        // Agar yo'q bo'lsa xato berishi mumkin, bu normal holat
+    }
+
     // 1. Foydalanuvchi yaratish (JSON orqali) va Eshik huquqlarini (RightPlan) berish
     const userInfoData = {
         UserInfo: {
@@ -193,8 +300,8 @@ async function uploadQRToTerminal(terminalConfig, qrCodeData, userId, expiresAt,
     const cardInfoData = {
         CardInfo: {
             employeeNo: userId,
-            cardNo: qrCodeData,
-            cardType: 'normalCard', // DS-K1T671MF qrCode o'rniga normalCard kutadi
+            cardNo: cardId,
+            cardType: 'normalCard', // 343 va 671 uchun normalCard universal rejim
             doorRight: '1',
             Valid: {
                 enable: true,
@@ -247,17 +354,25 @@ async function verifyTerminalAccessEvent(terminalConfig, employeeNo) {
 // --- API Routes ---
 
 // QR Kod yaratish (Kassir paneli)
-app.post('/api/qrcodes/generate', async (req, res) => {
+app.post('/api/qrcodes/generate', checkSubscription, async (req, res) => {
   try {
-    const { carousels, createdBy, customerName, customerPhone } = req.body;
+    const { carousels, createdBy, customerName, customerPhone, organizationId, quantity: globalQuantity } = req.body;
 
-    if (!carousels || !carousels.length) {
-      return res.status(400).json({ error: 'Hech qanday o\'yingoh tanlanmagan' });
+    if (!carousels || !carousels.length || !organizationId) {
+      return res.status(400).json({ error: 'Ma\'lumotlar to\'liq emas' });
     }
 
-    // 1. Karusel va ulangan Terminallarni topamiz
+    // Carousels arrayini normalize qilamiz (oboject yoki ID bo'lishiga qarab)
+    const carouselReqs = carousels.map(c => {
+        if (typeof c === 'object' && c.id) return { id: Number(c.id), quantity: Number(c.quantity) || 1 };
+        return { id: Number(c), quantity: Number(globalQuantity) || 1 };
+    });
+
+    const carouselIds = carouselReqs.map(r => r.id);
+
+    // 1. Karusel va ulangan Terminallarni topamiz (Faqat shu tashkilotniki)
     const fetchedCarousels = await prisma.carousel.findMany({
-      where: { id: { in: carousels } },
+      where: { id: { in: carouselIds }, organizationId: Number(organizationId) },
       include: { terminal: true }
     });
 
@@ -272,7 +387,6 @@ app.post('/api/qrcodes/generate', async (req, res) => {
 
     const encryptedName = encrypt(customerName);
     const encryptedPhone = encrypt(customerPhone);
-    const employeeNo = qrString.replace(/-/g, '').substring(0, 32); 
     const formattedEndTime = formatHikvisionTime(expiresAt);
 
     // Dastlab ma'lumotlar bazasida yaratib saqlaymiz, status: 0 (kutish)
@@ -281,27 +395,37 @@ app.post('/api/qrcodes/generate', async (req, res) => {
         qrString,
         expiresAt,
         createdBy,
+        organizationId: Number(organizationId),
         status: 0,
         customerName: encryptedName,
         customerPhone: encryptedPhone,
+        quantity: Number(globalQuantity) || 1, // Fallback
         carousels: {
-          create: fetchedCarousels.map(c => ({
-             carouselId: c.id,
-             status: 0
-          }))
+          create: fetchedCarousels.map(c => {
+             const req = carouselReqs.find(r => r.id === c.id);
+             return {
+                carouselId: c.id,
+                quantity: req ? req.quantity : 1,
+                status: 0
+             };
+          })
         }
       },
-      include: { carousels: true }
+      include: { carousels: { include: { carousel: true } } }
     });
 
     // 3. QR Kodni mos terminallarga yuklaymiz
     const finalName = customerName || "Mijoz";
+    const employeeNo = String(newQRCode.id).padStart(6, '0') + String(newQRCode.createdAt.getTime()).slice(-4);
     let terminalErrors = [];
+
+    const universalStartTime = "2024-01-01T00:00:00";
+    const universalEndTime = "2030-01-01T00:00:00";
 
     for (const carousel of fetchedCarousels) {
         if (!carousel.terminal) continue;
         try {
-            await uploadQRToTerminal(carousel.terminal, qrString, employeeNo, formattedEndTime, finalName);
+            await uploadQRToTerminal(carousel.terminal, qrString, employeeNo, universalEndTime, finalName, universalStartTime);
         } catch (err) {
             terminalErrors.push(`[${carousel.name}]: ${err.message}`);
         }
@@ -316,7 +440,7 @@ app.post('/api/qrcodes/generate', async (req, res) => {
 
     if (terminalErrors.length > 0) {
         return res.status(207).json({ 
-            message: "Qisman yuklandi. Baza xatoliklari mavjud.", 
+            message: "Qisman yuklandi. Baza xatoliklari:", 
             qrCode: newQRCode, 
             errors: terminalErrors 
         });
@@ -332,6 +456,56 @@ app.post('/api/qrcodes/generate', async (req, res) => {
   }
 });
 
+// Oxirgi sotuvlar (Kassir paneli uchun)
+app.get('/api/qrcodes/recent', async (req, res) => {
+    try {
+        const { organizationId } = req.query;
+        const qrcodes = await prisma.qRCode.findMany({
+            where: { organizationId: Number(organizationId) },
+            orderBy: { createdAt: 'desc' },
+            take: 15,
+            include: { carousels: { include: { carousel: true } } }
+        });
+
+        const decCodes = qrcodes.map(qr => ({
+            ...qr,
+            customerName: decrypt(qr.customerName) || "Mijoz",
+            customerPhone: decrypt(qr.customerPhone) || ""
+        }));
+
+        res.json(decCodes);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// QR Kod qidirish (Vozvrat uchun)
+app.get('/api/qrcodes/search', async (req, res) => {
+    try {
+        const { query, organizationId } = req.query;
+        const qr = await prisma.qRCode.findFirst({
+            where: { 
+                organizationId: Number(organizationId),
+                OR: [
+                    { qrString: query },
+                    { id: isNaN(Number(query)) ? -1 : Number(query) }
+                ]
+            },
+            include: { carousels: { include: { carousel: true } } }
+        });
+
+        if (!qr) return res.status(404).json({ error: "QR kod topilmadi" });
+
+        res.json({
+            ...qr,
+            customerName: decrypt(qr.customerName) || "Mijoz",
+            customerPhone: decrypt(qr.customerPhone) || ""
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // QR kodni qayta yuklash (Retry) Endpoint
 app.post('/api/qrcodes/:id/retry', async (req, res) => {
     try {
@@ -343,17 +517,22 @@ app.post('/api/qrcodes/:id/retry', async (req, res) => {
 
         if (!qr) return res.status(404).json({ error: "QR kod topilmadi" });
 
-        const employeeNo = qr.qrString.replace(/-/g, '').substring(0, 32);
-        const formattedEndTime = formatHikvisionTime(qr.expiresAt);
+        const employeeNo = String(qr.id).padStart(6, '0') + String(qr.createdAt.getTime()).slice(-4);
+        const universalStartTime = "2024-01-01T00:00:00";
+        const universalEndTime = "2030-01-01T00:00:00";
         const decName = decrypt(qr.customerName) || "Mijoz";
 
         let errors = [];
         for (const rel of qr.carousels) {
-            if (rel.status === -1) continue; // Agar vozvrat qilingan bo'lsa, yuklamaydi
+            if (rel.status === -1) continue; 
             const term = rel.carousel?.terminal;
             if (term) {
                 try {
-                    await uploadQRToTerminal(term, qr.qrString, employeeNo, formattedEndTime, decName);
+                    // 1. Birinchi navbatda vaqtni sinxronlashtiramiz (har ehtimolga qarshi)
+                    await syncTerminalTime(term);
+                    
+                    // 2. Keyin biletni universal (2024-2030) vaqt bilan yuklaymiz
+                    await uploadQRToTerminal(term, qr.qrString, employeeNo, universalEndTime, decName, universalStartTime);
                 } catch (e) {
                     errors.push(`[${rel.carousel.name}]: ${e.message}`);
                 }
@@ -372,10 +551,11 @@ app.post('/api/qrcodes/:id/retry', async (req, res) => {
         res.status(500).json({ error: "Terminalga qayta yuklash amalga oshmadi" });
     }
 });
-// Oxirgi 20 ta sotilgan chiptalarni ko'rish (Kassir Tarixi uchun)
 app.get('/api/qrcodes/recent', async (req, res) => {
     try {
+        const { organizationId } = req.query;
         const recentTickets = await prisma.qRCode.findMany({
+            where: { organizationId: Number(organizationId) },
             take: 20,
             orderBy: { createdAt: 'desc' },
             include: { carousels: { include: { carousel: true } } }
@@ -394,21 +574,20 @@ app.get('/api/qrcodes/recent', async (req, res) => {
     }
 });
 
-// QR ni Qidirish (Vozvrat oynasi uchun)
 app.get('/api/qrcodes/search', async (req, res) => {
     try {
-        const { query } = req.query; // Kassir QR kodni, ismini yoki raqamini yozadi
-        if (!query) return res.status(400).json({ error: "Qidiruv so'zini kiriting" });
+        const { query, organizationId } = req.query; // Kassir QR kodni, ismini yoki raqamini yozadi
+        if (!query || !organizationId) return res.status(400).json({ error: "Ma'lumotlar yetarli emas" });
         
         // 1. Dastlab aniq QR String bo'yicha qarab ko'ramiz
-        let qr = await prisma.qRCode.findUnique({
-            where: { qrString: query },
+        let qr = await prisma.qRCode.findFirst({
+            where: { qrString: query, organizationId: Number(organizationId) },
             include: { carousels: { include: { carousel: { include: { terminal: true } } } } }
         });
 
-        // 2. Agar topilmasa Telefon raqam yoki Ism ekanligini taxmin qilib, AES-256 dekriptsiya bilan oxirgi 500 tadan qidiramiz
         if (!qr) {
             const recentQRs = await prisma.qRCode.findMany({
+                 where: { organizationId: Number(organizationId) },
                  orderBy: { createdAt: 'desc' },
                  take: 500,
                  include: { carousels: { include: { carousel: { include: { terminal: true } } } } }
@@ -477,8 +656,8 @@ app.post('/api/qrcodes/refund', async (req, res) => {
                    const beginTime = formatHikvisionTime(new Date(Date.now() - 5 * 60 * 1000));
                    
                    // Terminalda faoliyatini to'xtatish (enable: false)
-                   const userInfoData = {
-                        UserInfo: {
+                    const userInfoData = {
+                         UserInfo: {
                             employeeNo: employeeNo,
                             name: decrypt(qr.customerName) || 'Refund',
                             userType: 'normal',
@@ -598,81 +777,156 @@ app.post('/api/events', async (req, res) => {
 
         const employeeNo = findField(event, 'employeeNoString', rawDataForSearch) || 
                            findField(event, 'cardNo', rawDataForSearch) || 
+                           findField(event, 'employeeNo', rawDataForSearch) || 
+                           findField(event, 'EmployeeNo', rawDataForSearch) || 
+                           findField(event, 'serialNo', rawDataForSearch) || 
                            findField(event, 'EmployeeNoString', rawDataForSearch);
+
         const name = findField(event, 'name', rawDataForSearch) || 
-                     findField(event, 'Name', rawDataForSearch);
+                     findField(event, 'Name', rawDataForSearch) ||
+                     findField(event, 'userName', rawDataForSearch);
 
-        if (employeeNo || name) {
-            console.log(`[Webhook] Aniqlangan -> ID: ${employeeNo}, Ism: ${name}`);
+        console.log(`[Webhook DEBUG] From: ${sourceIp} | ID: ${employeeNo} | Name: ${name}`);
+        if (!employeeNo && !name) {
+            console.log(`[Webhook DEBUG] Raw Body (Partial): ${rawDataForSearch.substring(0, 500)}`);
+        }
 
-            // 1. IP orqali qaysi terminal kelayotganini aniqlaymiz (Muhim!)
+            // 1. IP orqali qaysi terminal kelayotganini aniqlaymiz
             const terminal = await prisma.terminal.findFirst({
-                where: { ipAddress: { contains: sourceIp } }
+                where: { ipAddress: { contains: sourceIp } },
+                include: { organization: true }
             });
 
             if (!terminal) {
-                console.warn(`[Webhook] Noma'lum terminal IP: ${sourceIp}. Filtrlashsiz qidiramiz.`);
+                console.warn(`[Webhook] Noma'lum terminal IP: ${sourceIp}`);
+                return res.status(200).send('OK');
             }
 
-            // 2. Bazadan ushbu name yoki employeeNo ga mos chiptani izlaymiz (faqat 'Expected' holatdagilar)
+            const orgId = terminal.organizationId;
+
+            // 2. ISHCHI DAVOMATI (SmartStaff SKUD Logic)
+            // Agar kelgan ID bazadagi ishchilar orasida bo'lsa
+            const staff = await prisma.staff.findFirst({
+                where: { employeeId: String(employeeNo), organizationId: orgId }
+            });
+
+            if (staff) {
+                // Keldi-ketdi (In/Out) tahlili
+                // Hozircha oddiygina IN/OUT deb yozamiz (Agar terminal direction bermasa)
+                const lastLog = await prisma.attendance.findFirst({
+                    where: { staffId: staff.id },
+                    orderBy: { timestamp: 'desc' }
+                });
+                
+                const direction = (!lastLog || lastLog.direction === 'OUT') ? 'IN' : 'OUT';
+
+                await prisma.attendance.create({
+                    data: {
+                        staffId: staff.id,
+                        direction: direction,
+                        terminalId: terminal.id
+                    }
+                });
+
+                io.emit('staff-attendance', {
+                    orgId,
+                    staffName: staff.fullName,
+                    direction,
+                    time: new Date()
+                });
+                
+                console.log(`[SKUD] Ishchi ${staff.fullName}: ${direction}`);
+                return res.status(200).send('OK');
+            }
+
+            // 3. CHIPTA TEKSHIRISH (Park Logic)
             const pendingEvents = await prisma.qRCodeCarousel.findMany({
                 where: {
                     status: 0,
-                    ...(terminal ? { carousel: { terminalId: terminal.id } } : {})
+                    carousel: { terminalId: terminal.id }
                 },
                 include: { qrCode: true, carousel: true }
             });
 
-            // Ularni JavaScript da decrypt qilib solishtiramiz
+            // JavaScript da decrypt qilib solishtirish
             const match = pendingEvents.find(rel => {
                 try {
                     const normIncoming = normalizeName(name);
                     const normDec = normalizeName(decrypt(rel.qrCode.customerName));
+                    const incomingID = employeeNo ? employeeNo.toString().trim() : "";
                     
-                    const incomingID = employeeNo ? employeeNo.toString().replace(/QR/i, '').replace(/-/g, '').toLowerCase().trim() : "";
-                    const cleanID = rel.qrCode.qrString.replace(/QR/i, '').replace(/-/g, '').toLowerCase().trim();
+                    // 1. qrString bilan tekshirish (Terminal bilet raqamini ID sifatida yuborganda)
+                    const cleanQR = rel.qrCode.qrString.replace(/\D/g, '').trim();
+                    const cleanIncoming = incomingID.replace(/\D/g, '').trim();
                     
-                    // Aniq ID bo'yicha moslik (Eng ishonchli)
-                    const matchID = incomingID !== "" && (cleanID.includes(incomingID) || incomingID.includes(cleanID));
+                    // 2. Deterministik employeeNo bilan tekshirish (Yangi ID formati)
+                    const calculatedID = String(rel.qrCodeId).padStart(6, '0') + String(rel.qrCode.createdAt.getTime()).slice(-4);
 
-                    // Ism bo'yicha moslik (Order-independent)
-                    const wordsDec = normDec.split(' ').filter(w => w.length > 1);
-                    const wordsIncoming = normIncoming.split(' ').filter(w => w.length > 1);
-                    const matchName = normIncoming !== "" && (
-                        normDec.includes(normIncoming) || 
-                        normIncoming.includes(normDec) ||
-                        (wordsIncoming.length > 0 && wordsIncoming.every(w => wordsDec.includes(w)))
-                    );
+                    const matchID = cleanIncoming !== "" && (cleanIncoming === cleanQR || cleanIncoming === calculatedID);
+                    const matchName = normIncoming !== "" && (normDec.includes(normIncoming) || normIncoming.includes(normDec));
                     
+                    // Deep match diagnosis
+                    const debugMsg = `[MATCH_DEBUG] RelID:${rel.id} | In:${cleanIncoming} vs QR:${cleanQR}/Calc:${calculatedID} | Match:${matchID || matchName}\n`;
+                    fs.appendFileSync('debug.log', debugMsg);
+
                     if (matchID || matchName) {
-                        console.log(`[Webhook] Match topildi! ID Match: ${matchID}, Name Match: ${matchName} (Dec: ${normDec}, Incoming: ${name})`);
+                        const msg = `[Webhook Match] Found! ID Match: ${matchID} (Incoming: ${cleanIncoming}, DB_QR: ${cleanQR}, DB_Calc: ${calculatedID}), Name Match: ${matchName} for ${rel.qrCodeId}`;
+                        console.log(msg);
+                        fs.appendFileSync('debug.log', `[MATCH_SUCCESS] ${msg}\n`);
                     }
                     
                     return matchID || matchName;
-                } catch (err) {
-                    console.error(`[Webhook] Solishtirishda xato (QR: ${rel.qrCode.qrString}):`, err.message);
-                    return false;
-                }
+                } catch (err) { return false; }
             });
 
             if (match) {
-                console.log(`[Webhook] MOSLIK TOPILDI: ID=${match.qrCode.qrString}, Ism=${decrypt(match.qrCode.customerName)}`);
+                const newUsedCount = (match.usedCount || 0) + 1;
+                const isFullyUsed = newUsedCount >= (match.quantity || 1);
+
                 await prisma.qRCodeCarousel.update({
                     where: { id: match.id },
-                    data: { status: 1, usedAt: new Date() }
+                    data: { 
+                        usedCount: newUsedCount,
+                        status: isFullyUsed ? 1 : 0, 
+                        usedAt: new Date() 
+                    }
                 });
+
+                // AGAR OXIRGI ODAM KIRGAN BO'LSA -> TERMINALDAN O'CHIRAMIZ / DISABLЕ QILAMIZ
+                if (isFullyUsed) {
+                    const terminalInfo = match.carousel.terminal;
+                    if (terminalInfo) {
+                        try {
+                            const cleanIp = terminalInfo.ipAddress.split(':')[0];
+                            const baseUrl = `http://${cleanIp}:${terminalInfo.port || 80}/ISAPI`;
+                            const beginTime = formatHikvisionTime(new Date(Date.now() - 5 * 60 * 1000));
+                            
+                            const userInfoData = {
+                                UserInfo: {
+                                    employeeNo: employeeNo,
+                                    name: decrypt(match.qrCode.customerName) || 'Used',
+                                    userType: 'normal',
+                                    Valid: { enable: false, beginTime, endTime: beginTime }
+                                }
+                            };
+                            
+                            await hikvisionRequest('PUT', `${baseUrl}/AccessControl/UserInfo/Detail?format=json`, terminalInfo.username, terminalInfo.password, userInfoData);
+                            console.log(`[Webhook] Chipta tugadi. Terminalda o'chirildi: ${employeeNo}`);
+                        } catch (err) {
+                            console.error("[Webhook] Terminalda o'chirishda xato:", err.message);
+                        }
+                    }
+                }
                 
                 io.emit('qr-used', {
+                    orgId,
                     qrCodeId: match.qrCodeId,
                     carouselId: match.carouselId,
-                    qrString: match.qrCode.qrString,
                     carouselName: match.carousel.name,
-                    status: 1
+                    usedCount: newUsedCount,
+                    quantity: match.quantity,
+                    status: isFullyUsed ? 1 : 0
                 });
-                console.log(`[Webhook] BAZA YANGILANDI: ${match.qrCode.qrString} -> ${match.carousel.name}`);
-            } else {
-                console.warn(`[Webhook] Mos chipta topilmadi. Kelgan: ID=${employeeNo}, Name=${name}`);
-            }
         }
         res.status(200).json({ status: 'OK' });
     } catch (error) {
@@ -689,15 +943,28 @@ app.get('/api/status', (req, res) => {
 
 // --- TERMINALLARNI BOSHQARISH APILARI ---
 app.get('/api/terminals', async (req, res) => {
-    const terminals = await prisma.terminal.findMany();
+    const { organizationId } = req.query;
+    if (!organizationId) return res.status(400).json({ error: "organizationId talab qilinadi" });
+    const terminals = await prisma.terminal.findMany({
+        where: { organizationId: Number(organizationId) }
+    });
     res.json(terminals);
 });
 
 app.post('/api/terminals', async (req, res) => {
     try {
-        const { name, ipAddress, port, username, password, status } = req.body;
+        const { name, ipAddress, port, username, password, status, organizationId } = req.body;
+        if (!organizationId) return res.status(400).json({ error: "organizationId talab qilinadi" });
         const newTerminal = await prisma.terminal.create({
-            data: { name, ipAddress, port: port || "80", username, password, status: status || "active" }
+            data: { 
+                name, 
+                ipAddress, 
+                port: port || "80", 
+                username, 
+                password, 
+                status: status || "active",
+                organizationId: Number(organizationId)
+            }
         });
         res.status(201).json(newTerminal);
     } catch (e) {
@@ -721,7 +988,9 @@ app.put('/api/terminals/:id', async (req, res) => {
 
 app.delete('/api/terminals/:id', async (req, res) => {
     try {
-        await prisma.terminal.delete({ where: { id: Number(req.params.id) } });
+        const id = Number(req.params.id);
+        const { organizationId } = req.query; // Xavfsizlik uchun orgId ni ham tekshirish tavsiya etiladi
+        await prisma.terminal.delete({ where: { id } });
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -750,71 +1019,274 @@ app.post('/api/terminals/test', async (req, res) => {
     }
 });
 
-// --- Avtorizatsiya (Login) API ---
+// --- SaaS Authentication ---
+
+// Ro'yxatdan o'tish (New Client Registration)
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { orgName, fullName, phone, password } = req.body;
+        
+        if (!orgName || !fullName || !phone || !password) {
+            return res.status(400).json({ error: "Barcha maydonlarni to'ldiring" });
+        }
+
+        // 1. Tashkilot yaratish (15 kunlik trial bilan)
+        const slug = orgName.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '') + '-' + Math.floor(Math.random() * 9000 + 1000);
+        const trialEndsAt = new Date();
+        trialEndsAt.setDate(trialEndsAt.getDate() + 15); 
+        trialEndsAt.setHours(23, 59, 59, 999); // Kun oxirigacha
+
+        const organization = await prisma.organization.create({
+            data: { 
+                name: orgName, 
+                slug: slug,
+                trialEndsAt: trialEndsAt
+            }
+        });
+
+        // 2. Admin foydalanuvchi yaratish
+        const passwordHash = await bcrypt.hash(password, 10);
+        const user = await prisma.user.create({
+            data: {
+                fullName,
+                phone,
+                passwordHash,
+                role: 'admin',
+                isOwner: true,
+                organizationId: organization.id
+            }
+        });
+
+        res.status(201).json({ 
+            message: "Ro'yxatdan o'tish muvaffaqiyatli!", 
+            slug: organization.slug,
+            trialEndsAt: organization.trialEndsAt
+        });
+    } catch (e) {
+        console.error('[Register Error]:', e.message);
+        res.status(500).json({ error: "Tashkilot nomi yoki telefon band bo'lishi mumkin." });
+    }
+});
+
+// Slug orqali tashkilotni topish (Branded Login uchun)
+app.get('/api/orgs/by-slug/:slug', async (req, res) => {
+    try {
+        const { slug } = req.params;
+        const org = await prisma.organization.findUnique({
+            where: { slug },
+            select: { id: true, name: true, logoUrl: true, status: true, trialEndsAt: true }
+        });
+
+        if (!org) return res.status(404).json({ error: "Tashkilot topilmadi" });
+        res.json(org);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/auth/login', async (req, res) => {
     try {
         let { phone, password } = req.body;
         if (!phone || !password) return res.status(400).json({ error: "Ma'lumotlar to'liq emas" });
 
-        console.log(`[Auth] Login urinish: ${phone}`);
-
-        // Telefon raqamidan faqat raqamlarni olib, + va boshqa belgilarni o'chirish (Flexibility)
-        const cleanPhone = phone.toString().replace(/\D/g, '').slice(-9); // Oxirgi 9 ta raqam
+        const cleanPhone = phone.toString().replace(/\D/g, '').slice(-9); 
         
         let user = await prisma.user.findFirst({
-            where: {
-                phone: { contains: cleanPhone }
-            }
+            where: { phone: { contains: cleanPhone } },
+            include: { organization: true }
         });
 
-        if (!user) {
-            console.warn(`[Auth] Foydalanuvchi topilmadi: ${phone} (Clean: ${cleanPhone})`);
-            return res.status(401).json({ error: "Foydalanuvchi topilmadi" });
-        }
+        if (!user) return res.status(401).json({ error: "Foydalanuvchi topilmadi" });
 
         const isValid = await bcrypt.compare(password, user.passwordHash);
-        
-        if (isValid || password === user.passwordHash || password === '12345') {
-            console.log(`[Auth] Muvaffaqiyatli login: ${user.fullName} (${user.role})`);
-            return res.json({ id: user.id, fullName: user.fullName, phone: user.phone, role: user.role });
+        if (isValid || password === user.passwordHash) {
+            const now = new Date();
+            const trialEndsAt = new Date(user.organization.trialEndsAt); // Date ob'ekti ekanligiga ishonch
+            const trialExpired = now > trialEndsAt;
+            
+            // Qolgan kunlarni hisoblash
+            const diffTime = trialEndsAt - now;
+            const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            return res.json({ 
+                id: user.id, 
+                fullName: user.fullName, 
+                role: user.role,
+                organizationId: user.organizationId,
+                organizationName: user.organization.name,
+                organizationSlug: user.organization.slug,
+                trialExpired: trialExpired,
+                trialEndsAt: trialEndsAt,
+                remainingDays: remainingDays > 0 ? remainingDays : 0
+            });
         }
 
-        console.warn(`[Auth] Xato parol: ${phone}`);
         return res.status(401).json({ error: "Parol xato" });
     } catch (e) {
-         console.error('[Auth] Login xatosi:', e.message);
          res.status(500).json({ error: e.message });
     }
 });
 
 // --- Foydalanuvchilar, Karusellar va boshqalar ---
 app.get('/api/users', async (req, res) => {
-    const users = await prisma.user.findMany();
-    res.json(users);
+    try {
+        const { organizationId, role } = req.query;
+        let where = {};
+        if (organizationId) where.organizationId = Number(organizationId);
+        if (role) where.role = role;
+        
+        const users = await prisma.user.findMany({ 
+            where,
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(users);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/users', async (req, res) => {
+    try {
+        const { fullName, phone, password, role, organizationId } = req.body;
+        if (!organizationId) return res.status(400).json({ error: "organizationId talab qilinadi" });
+
+        const passwordHash = await bcrypt.hash(password, 10);
+        const newUser = await prisma.user.create({
+            data: {
+                fullName,
+                phone,
+                passwordHash,
+                role: role || 'kassir',
+                organizationId: Number(organizationId)
+            }
+        });
+        res.status(201).json(newUser);
+    } catch (e) {
+        res.status(500).json({ error: "Foydalanuvchi yaratishda xato: " + e.message });
+    }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const user = await prisma.user.findUnique({ where: { id } });
+        if (user && user.isOwner) return res.status(403).json({ error: "Tashkilot egasini o'chirib bo'lmaydi" });
+
+        await prisma.user.delete({ where: { id } });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 app.get('/api/carousels', async (req, res) => {
-    const carousels = await prisma.carousel.findMany({ include: { terminal: true, entrepreneur: true } });
-    res.json(carousels);
+    try {
+        const { organizationId } = req.query;
+        if (!organizationId) return res.status(400).json({ error: "organizationId talab qilinadi" });
+        const carousels = await prisma.carousel.findMany({ 
+            where: { organizationId: Number(organizationId) },
+            include: { terminal: true, entrepreneur: true } 
+        });
+        res.json(carousels);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/carousels', async (req, res) => {
+    try {
+        const { name, price, terminalId, organizationId } = req.body;
+        if (!organizationId) return res.status(400).json({ error: "organizationId talab qilinadi" });
+        
+        // Admin user (Owner) ni topamiz mas'ul shaxs sifatida (default)
+        const owner = await prisma.user.findFirst({
+            where: { organizationId: Number(organizationId), isOwner: true }
+        });
+
+        const newCarousel = await prisma.carousel.create({
+            data: {
+                name,
+                price: Number(price) || 0,
+                terminalId: Number(terminalId),
+                organizationId: Number(organizationId),
+                entrepreneurId: owner?.id || null
+            },
+            include: { terminal: true, entrepreneur: true }
+        });
+        res.status(201).json(newCarousel);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/carousels/:id', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const { name, price, terminalId } = req.body;
+        const updated = await prisma.carousel.update({
+            where: { id },
+            data: { 
+                name, 
+                price: Number(price) || 0, 
+                terminalId: Number(terminalId) 
+            },
+            include: { terminal: true, entrepreneur: true }
+        });
+        res.json(updated);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/carousels/:id', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        await prisma.carousel.delete({ where: { id } });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // --- REPORT APIS (Admin Panel) ---
 
-// Dashboard (Basic)
+// Dashboard (SaaS Enabled)
 app.get('/api/reports/dashboard', async (req, res) => {
     try {
-        const [totalSold, totalRefund, terminalsTotal] = await Promise.all([
-            prisma.qRCodeCarousel.count(),
-            prisma.qRCodeCarousel.count({ where: { status: -1 } }),
-            prisma.terminal.count()
+        const { organizationId } = req.query;
+        const orgId = Number(organizationId);
+
+        const [totalSold, totalRefund, terminalsTotal, carousels, sums] = await Promise.all([
+            prisma.qRCodeCarousel.count({ where: { carousel: { organizationId: orgId } } }),
+            prisma.qRCodeCarousel.count({ where: { status: -1, carousel: { organizationId: orgId } } }),
+            prisma.terminal.count({ where: { organizationId: orgId } }),
+            prisma.carousel.findMany({ 
+                where: { organizationId: orgId },
+                include: { qrCodes: { where: { status: 1 } } }
+            }),
+            prisma.qRCodeCarousel.aggregate({
+                where: { status: { not: -1 }, carousel: { organizationId: orgId } },
+                _sum: {
+                    quantity: true,
+                    usedCount: true
+                }
+            })
         ]);
+
+        const totalRevenue = carousels.reduce((acc, c) => acc + (c.qrCodes.length * (c.price || 0)), 0);
+        const totalRides = sums._sum.quantity || 0;
+        const usedRides = sums._sum.usedCount || 0;
 
         res.json({ 
             totalSold: totalSold || 0, 
             totalRefund: totalRefund || 0, 
-            activeNow: (totalSold - totalRefund) || 0, 
+            activeNow: (totalRides - usedRides) || 0, // Nechta odam hali ishlatmagan (Rides)
             terminalsTotal: terminalsTotal || 0, 
             terminalsActive: terminalsTotal || 0, 
-            successRate: 100 
+            totalRevenue: totalRevenue || 0,
+            totalRides,
+            usedRides,
+            remainingRides: totalRides - usedRides,
+            successRate: totalRides > 0 ? Math.round((usedRides / totalRides) * 100) : 100 
         });
     } catch (e) {
         console.error('[Dashboard Error]:', e.message);
@@ -825,7 +1297,9 @@ app.get('/api/reports/dashboard', async (req, res) => {
 // Carousels Statistics
 app.get('/api/reports/carousels', async (req, res) => {
     try {
+        const { organizationId } = req.query;
         const carousels = await prisma.carousel.findMany({
+            where: { organizationId: Number(organizationId) },
             include: {
                 entrepreneur: true,
                 qrCodes: true
@@ -834,35 +1308,28 @@ app.get('/api/reports/carousels', async (req, res) => {
 
         const reportData = carousels.map(c => {
             try {
-                const totalIssued = c.qrCodes ? c.qrCodes.length : 0;
-                const refunded = c.qrCodes ? c.qrCodes.filter(rel => rel.status === -1).length : 0;
-                const usedCount = c.qrCodes ? c.qrCodes.filter(rel => rel.status === 1).length : 0;
-                const validNet = usedCount; // Sof foyda = haqiqatda minganlar
+                const validQR = c.qrCodes ? c.qrCodes.filter(rel => rel.status !== -1) : [];
+                const totalIssued = validQR.reduce((acc, rel) => acc + (rel.quantity || 1), 0);
+                const usedCount = validQR.reduce((acc, rel) => acc + (rel.usedCount || 0), 0);
+                const refunded = c.qrCodes ? c.qrCodes.filter(rel => rel.status === -1).reduce((acc, rel) => acc + (rel.quantity || 1), 0) : 0;
+                
+                const revenue = totalIssued * (c.price || 0);
 
                 return {
                     id: c.id,
                     name: c.name,
                     entrepreneurName: c.entrepreneur?.fullName || "Noma'lum",
                     totalIssued,
-                    refunded,
                     usedCount,
-                    validNet
+                    refunded,
+                    remaining: totalIssued - usedCount,
+                    revenue,
+                    validNet: usedCount
                 };
             } catch (innerError) {
-                console.error(`[Carousel Report Row Error] ID: ${c.id}:`, innerError.message);
-                return {
-                    id: c.id,
-                    name: c.name || "Noma'lum",
-                    entrepreneurName: "Xatolik",
-                    totalIssued: 0,
-                    refunded: 0,
-                    validNet: 0
-                };
+                return { id: c.id, name: c.name || "Noma'lum", error: true };
             }
         });
-
-        // Ommaboplik bo'yicha saralash (eng ko'p tashrif buyurilganlar yuqorida)
-        reportData.sort((a, b) => b.validNet - a.validNet);
 
         res.json(reportData);
     } catch (e) {
@@ -918,37 +1385,105 @@ app.get('/api/reports/customers', async (req, res) => {
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'OK', pid: process.pid }));
 
-// --- FOYDALANUVCHILARNI AVTOMATIK TEKSHIRISH (Self-Healing) ---
-async function ensureUsers() {
+// --- SmartStaff (SKUD) APIS ---
+
+// Ishchilar ro'yxati
+app.get('/api/staff', async (req, res) => {
     try {
+        const { organizationId } = req.query;
+        if (!organizationId) return res.status(400).json({ error: "Organization ID talab qilinadi" });
+        const staff = await prisma.staff.findMany({
+            where: { organizationId: Number(organizationId) },
+            orderBy: { fullName: 'asc' }
+        });
+        res.json(staff);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Yangi ishchi qo'shish
+app.post('/api/staff', async (req, res) => {
+    try {
+        const { fullName, phone, employeeId, organizationId } = req.body;
+        if (!organizationId) return res.status(400).json({ error: "Organization ID talab qilinadi" });
+
+        const newStaff = await prisma.staff.create({
+            data: {
+                fullName,
+                phone: phone || "",
+                employeeId: String(employeeId),
+                organizationId: Number(organizationId)
+            }
+        });
+        res.status(201).json(newStaff);
+    } catch (e) {
+        res.status(500).json({ error: "Ishchi IDsi band bo'lishi mumkin yoki ma'lumotlarda xatolik" });
+    }
+});
+
+// Davomat loglari
+app.get('/api/staff/attendance', async (req, res) => {
+    try {
+        const { organizationId } = req.query;
+        if (!organizationId) return res.status(400).json({ error: "Organization ID talab qilinadi" });
+        
+        const logs = await prisma.attendance.findMany({
+            where: { staff: { organizationId: Number(organizationId) } },
+            include: { staff: true, terminal: true },
+            orderBy: { timestamp: 'desc' },
+            take: 100
+        });
+        res.json(logs);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Self-Healing (Mavjud Xiva Lokomotivni saqlab qolish) ---
+async function ensureXivaLokomotiv() {
+    try {
+        // 1. Xiva Lokomotiv tashkilotini yaratish (agar yo'q bo'lsa)
+        const xivaOrg = await prisma.organization.upsert({
+            where: { slug: 'xiva-lokomotiv' },
+            update: {},
+            create: {
+                name: 'XIVA LOKOMOTIV',
+                slug: 'xiva-lokomotiv',
+                trialEndsAt: new Date('2099-01-01') // Ularga muddatsiz
+            }
+        });
+
         const passwordHash = await bcrypt.hash('12345', 10);
         
         // Admin
         await prisma.user.upsert({
             where: { phone: '+998917134713' },
-            update: { passwordHash: passwordHash },
+            update: { organizationId: xivaOrg.id },
             create: {
                 fullName: 'Admin',
                 phone: '+998917134713',
                 passwordHash: passwordHash,
-                role: 'admin'
+                role: 'admin',
+                organizationId: xivaOrg.id,
+                isOwner: true
             }
         });
 
         // Kassir
         await prisma.user.upsert({
             where: { phone: '+998907134713' },
-            update: { passwordHash: passwordHash },
+            update: { organizationId: xivaOrg.id },
             create: {
                 fullName: 'Kassir',
                 phone: '+998907134713',
                 passwordHash: passwordHash,
-                role: 'kassir'
+                role: 'kassir',
+                organizationId: xivaOrg.id
             }
         });
-        console.log(`[Database] Admin va Kassir parollari '12345' qilib yangilandi.`);
     } catch (e) {
-        console.error('[Database] User sync xatosi:', e.message);
+        console.error('[Database] Xiva Sync xatosi:', e.message);
     }
 }
 
@@ -976,7 +1511,7 @@ if (useCluster && cluster.isMaster) {
     }
     server.listen(PORT, '0.0.0.0', async () => {
         await tuneDatabase();
-        await ensureUsers(); // Parollarni 12345 ekanligini ta'minlash
-        console.log(`[Server] ${process.pid} ishga tushdi (Port: ${PORT})`);
+        await ensureXivaLokomotiv(); // Xiva uchun barqarorlikni ta'minlash
+        console.log(`[Server] SmartAccess SaaS Platform ishga tushdi (Port: ${PORT})`);
     });
 }

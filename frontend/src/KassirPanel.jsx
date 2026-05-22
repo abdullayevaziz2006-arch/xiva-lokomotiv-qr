@@ -3,29 +3,39 @@ import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
+import { 
+  ShoppingBag, 
+  Search, 
+  History, 
+  Moon, 
+  Sun, 
+  LogOut, 
+  QrCode, 
+  User, 
+  Printer, 
+  RotateCcw,
+  CheckCircle2,
+  AlertTriangle,
+  Lock
+} from 'lucide-react';
 import { API_BASE_URL, API_URL } from './apiConfig';
+import ThemeToggle from './components/ThemeToggle';
 
 const socket = io(API_BASE_URL);
 
-/**
- * Premium Kassir Panel - Vertical Top-Bottom Layout
- * Sales Section is always ON TOP.
- * History Table is always AT THE BOTTOM.
- */
 const KassirPanel = () => {
     const navigate = useNavigate();
     const userString = localStorage.getItem('user');
-    const user = userString ? JSON.parse(userString) : null;
+    const user = userString ? JSON.parse(userString) : { organizationName: 'SmartAccess', fullName: 'Kassir' };
 
-    // Sales States
-    const [selectedCarousels, setSelectedCarousels] = useState([]);
+    const [basket, setBasket] = useState([]); // [{id, name, price, quantity}]
     const [customerName, setCustomerName] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
+    const [quantity, setQuantity] = useState(1);
     const [loading, setLoading] = useState(false);
     const [generatedCode, setGeneratedCode] = useState(null);
     const [error, setError] = useState('');
 
-    // History & Search States
     const [recentTickets, setRecentTickets] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -34,18 +44,11 @@ const KassirPanel = () => {
     const [refundCarousels, setRefundCarousels] = useState([]);
 
     const [carousels, setCarousels] = useState([]);
-    const [isDarkMode, setIsDarkMode] = useState(localStorage.getItem('kassirTheme') === 'dark');
-
-    const toggleTheme = () => {
-        const newTheme = !isDarkMode;
-        setIsDarkMode(newTheme);
-        localStorage.setItem('kassirTheme', newTheme ? 'dark' : 'light');
-    };
 
     const fetchRecentTickets = async () => {
         setHistoryLoading(true);
         try {
-            const res = await axios.get(`${API_URL}/qrcodes/recent`);
+            const res = await axios.get(`${API_URL}/qrcodes/recent?organizationId=${user?.organizationId}`);
             setRecentTickets(res.data);
         } catch (err) {
             console.error("Tarixni yuklashda xato:", err);
@@ -56,35 +59,52 @@ const KassirPanel = () => {
 
     useEffect(() => {
         const fetchCarousels = async () => {
+            if (!user?.organizationId) {
+                console.error("KassirPanel: organizationId topilmadi!", user);
+                return;
+            }
             try {
-                const res = await axios.get(`${API_URL}/carousels`);
+                const res = await axios.get(`${API_URL}/carousels?organizationId=${user?.organizationId}`);
+                console.log(`[Panel] ${res.data.length} ta o'yingoh yuklandi. (OrgID: ${user.organizationId})`);
                 setCarousels(res.data);
             } catch (err) {
                 console.error("Karusellarni yuklashda xato:", err);
+                setError("O'yingohlarni yuklashda xatolik yuz berdi. Iltimos, sahifani yangilang.");
             }
         };
         fetchCarousels();
         fetchRecentTickets();
 
-        // Real-time update when a QR is used
-        socket.on('qr-used', () => {
-            fetchRecentTickets();
-        });
-
+        socket.on('qr-used', () => fetchRecentTickets());
         return () => socket.off('qr-used');
     }, []);
 
-    const toggleCarouselSelection = (id) => {
-        if (selectedCarousels.includes(id)) {
-            setSelectedCarousels(selectedCarousels.filter(item => item !== id));
-        } else {
-            setSelectedCarousels([...selectedCarousels, id]);
-        }
+    const toggleCarouselSelection = (carousel) => {
+        setBasket(prev => {
+            const exists = prev.find(item => item.id === carousel.id);
+            if (exists) {
+                return prev.filter(item => item.id !== carousel.id);
+            } else {
+                return [...prev, { ...carousel, quantity: 1 }];
+            }
+        });
     };
 
+    const updateItemQuantity = (id, delta) => {
+        setBasket(prev => prev.map(item => {
+            if (item.id === id) {
+                const newQty = Math.max(1, item.quantity + delta);
+                return { ...item, quantity: newQty };
+            }
+            return item;
+        }));
+    };
+
+    const totalPrice = basket.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
     const handleGenerate = async () => {
-        if (selectedCarousels.length === 0) {
-            setError("Iltimos, kamida bitta karuselni tanlang!");
+        if (basket.length === 0) {
+            setError("Iltimos, xizmat ko'rsatish nuqtasini tanlang!");
             return;
         }
 
@@ -93,29 +113,34 @@ const KassirPanel = () => {
 
         try {
             const response = await axios.post(`${API_URL}/qrcodes/generate`, {
-                carousels: selectedCarousels,
+                carousels: basket.map(item => ({ id: item.id, quantity: item.quantity })),
                 createdBy: user ? user.id : 1,
-                customerName: customerName || "Mijoz",
-                customerPhone: customerPhone || ""
+                organizationId: user?.organizationId,
+                customerName: customerName || "Mehmon",
+                customerPhone: customerPhone || "",
+                quantity: basket.reduce((sum, i) => sum + i.quantity, 0) // Total for legacy support
             });
 
             setGeneratedCode({
                 ...response.data.qrCode,
-                selectedNames: carousels.filter(c => selectedCarousels.includes(c.id)).map(c => c.name)
+                items: basket
             });
 
             setCustomerName("");
             setCustomerPhone("");
-            setSelectedCarousels([]);
+            setBasket([]);
             fetchRecentTickets();
 
             if (response.status === 207) {
-                setError(response.data.message);
+                const detailedErrors = response.data.errors?.join(" | ") || "";
+                setError(`Qisman yuklandi. Xatolar: ${detailedErrors}`);
                 setGeneratedCode(prev => ({ ...prev, hasErrors: true }));
             } else {
                 setError("");
-                setTimeout(() => window.print(), 350);
             }
+            
+            // HAR QANDAY HOLATDA HAM PECHATGA RUXSAT:
+            setTimeout(() => window.print(), 350);
 
         } catch (err) {
             setError(err.response?.data?.error || "Xatolik yuz berdi");
@@ -124,19 +149,12 @@ const KassirPanel = () => {
         }
     };
 
-    const selectTicketForRefund = (ticket) => {
-        setSearchResult(ticket);
-        setSearchQuery(ticket.qrString);
-        setRefundCarousels([]);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
     const handleSearch = async () => {
         if (!searchQuery) return;
         setSearchLoading(true);
         setSearchResult(null);
         try {
-            const res = await axios.get(`${API_URL}/qrcodes/search?query=${searchQuery}`);
+            const res = await axios.get(`${API_URL}/qrcodes/search?query=${searchQuery}&organizationId=${user?.organizationId}`);
             setSearchResult(res.data);
         } catch (err) {
             alert(err.response?.data?.error || "Topilmadi!");
@@ -168,311 +186,317 @@ const KassirPanel = () => {
     };
 
     return (
-        <div className={`kassir-page ${isDarkMode ? 'dark-mode' : ''}`} style={{
-            minHeight: '100vh',
-            padding: '24px',
-            fontFamily: "'Outfit', sans-serif"
-        }}>
-            <div className="kassir-container" style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div className="kassir-page outfit">
+            <div className="container-main">
                 
-                {/* HEADER */}
-                <header className="kassir-header no-print" style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    padding: '16px 32px', 
-                    borderRadius: '24px', 
-                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.04)',
-                    border: '1px solid transparent'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                        <div style={{ width: '40px', height: '40px', background: '#2f54ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '20px' }}>
-                            🎡
-                        </div>
-                        <div>
-                            <h1 className="brand-title" style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', letterSpacing: '-0.5px' }}>Xiva Lokomotiv</h1>
-                            <span style={{ fontSize: '0.75rem', color: '#2f54ff', fontWeight: '700', textTransform: 'uppercase' }}>Kassir Paneli</span>
+                {/* 3 KUNLIK OGOHLANTIRISH BANNERI */}
+                {user.remainingDays <= 3 && !user.trialExpired && (
+                    <div className="no-print" style={{
+                        background: 'linear-gradient(90deg, #ef4444 0%, #dc2626 100%)',
+                        color: 'white',
+                        padding: '12px 24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '12px',
+                        fontSize: '0.9rem',
+                        fontWeight: 700,
+                        borderRadius: '16px',
+                        marginBottom: '16px',
+                        boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
+                    }}>
+                        <AlertTriangle size={18} />
+                        DIQQAT: Demo muddatingiz {user.remainingDays} kundan keyin tugaydi! Tizimni davom ettirish uchun Admin bilan bog'laning.
+                    </div>
+                )}
+
+                {/* FULL LOCKDOWN OVERLAY */}
+                {user.trialExpired && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+                        background: 'var(--bg-main)', opacity: 0.98, backdropFilter: 'blur(10px)',
+                        zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-main)'
+                    }}>
+                        <div className="fade-in" style={{ maxWidth: '500px', padding: '40px' }}>
+                            <div style={{ background: 'var(--danger)', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+                                <Lock size={40} color="white" />
+                            </div>
+                            <h1 style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '16px' }}>Xizmat to'xtatilgan</h1>
+                            <p style={{ fontSize: '1.1rem', color: 'var(--text-muted)', marginBottom: '40px' }}>
+                                Sizning tashkilotingiz uchun demo muddati yakunlangan. 
+                                Iltimos, xizmatni qayta tiklash uchun ma'muriyatga murojaat qiling.
+                            </p>
+                            <button className="btn-primary" onClick={() => { localStorage.removeItem('user'); window.location.href = '/login'; }} style={{ background: 'var(--primary)', padding: '18px 40px', fontSize: '1.2rem' }}>CHIQUV</button>
                         </div>
                     </div>
-                    <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-                        <button 
-                            onClick={toggleTheme}
-                            style={{ 
-                                background: 'none', 
-                                border: 'none', 
-                                fontSize: '24px', 
-                                cursor: 'pointer',
-                                padding: '8px',
-                                borderRadius: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            {isDarkMode ? '🌞' : '🌙'}
-                        </button>
-                        <div className="user-info" style={{ textAlign: 'right' }}>
-                            <span style={{ fontSize: '0.7rem', color: '#999', display: 'block', fontWeight: '600' }}>MAS'UL KASSIR</span>
-                            <span className="user-name" style={{ fontWeight: '800' }}>{user?.fullName}</span>
+                )}
+
+                {/* HEADER */}
+                <header className="kassir-header no-print">
+                    <div className="header-logo">
+                        <div className="icon"><QrCode size={20} color="white" /></div>
+                        <div>
+                            <h1 className="brand-name">{user?.organizationName || 'SmartAccess'}</h1>
+                            <span className="platform-sub">Terminal Control</span>
                         </div>
-                        <button 
-                            onClick={() => { localStorage.removeItem('user'); navigate('/login'); }} 
-                            className="btn-exit"
-                            style={{ padding: '10px 20px', borderRadius: '14px', cursor: 'pointer', fontWeight: '700', transition: '0.2s' }}
-                        >
-                            Chiqish
+                    </div>
+                    <div className="header-actions">
+                        <ThemeToggle />
+                        <div className="user-profile">
+                            <span className="user-role">Kassir</span>
+                            <span className="user-name">{user?.fullName}</span>
+                        </div>
+                        <button className="logout-btn" onClick={() => { localStorage.removeItem('user'); navigate('/login'); }}>
+                            <LogOut size={18} />
                         </button>
                     </div>
                 </header>
 
-                {/* --- VERTICAL LAYOUT START --- */}
-                <main className="no-print" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <main className="no-print kassir-main-layout">
                     
-                    {/* TOP SECTION: SALES & SEARCH WRAPPER */}
-                    <div className="kassir-main-card glass-card" style={{ 
-                        borderRadius: '32px', 
-                        padding: '32px', 
-                        boxShadow: '0 20px 40px rgba(0,0,0,0.04)', 
-                        display: 'flex',
-                        gap: '40px',
-                        flexWrap: 'wrap'
-                    }}>
-                        {/* 1. SALES FORM */}
-                        <div className="sales-column" style={{ flex: '1.2', minWidth: '350px' }}>
-                            <h2 style={{ margin: '0 0 24px 0', fontSize: '1.5rem', fontWeight: '800' }}>Chipta Sotish</h2>
+                    {/* LEFT: SALES FORM */}
+                    <div className="sales-section">
+                        <div className="panel-card">
+                            <div className="card-header">
+                                <ShoppingBag size={20} color="var(--primary)" />
+                                <h2>Chipta Sotish</h2>
+                            </div>
                             
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                <div style={{ marginBottom: '24px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#666', marginBottom: '8px' }}>Mijoz Ismi:</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: '12px' }}>
+                                <div className="form-group">
+                                    <label>Mijoz Ismi:</label>
                                     <input 
                                         type="text" 
-                                        value={customerName} 
-                                        onChange={e => setCustomerName(e.target.value)}
-                                        placeholder="Ismni kiriting..."
-                                        className="kassir-input"
-                                        style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', fontSize: '1rem', outline: 'none' }}
+                                        placeholder="Mehmon nomi..." 
+                                        value={customerName}
+                                        onChange={(e) => setCustomerName(e.target.value)}
+                                        className="premium-input"
                                     />
                                 </div>
-                                <div style={{ marginBottom: '24px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#666', marginBottom: '12px' }}>Karusellarni Tanlang:</label>
-                                    
-                                    {/* DESKTOP: BUTTONS */}
-                                    <div className="carousel-buttons" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                                        {carousels.map(c => (
-                                            <button 
-                                                key={c.id}
-                                                onClick={() => toggleCarouselSelection(c.id)}
-                                                style={{
-                                                    padding: '12px 24px',
-                                                    borderRadius: '16px',
-                                                    boxShadow: selectedCarousels.includes(c.id) ? '0 8px 15px rgba(47, 84, 255, 0.2)' : 'none',
-                                                    border: '2px solid ' + (selectedCarousels.includes(c.id) ? '#2f54ff' : 'var(--border)')
-                                                }}
-                                            >
-                                                {c.name}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {/* MOBILE: CUSTOM MULTI-SELECT STYLE */}
-                                    <div className="carousel-select-mobile" style={{ display: 'none' }}>
-                                        <div style={{ 
-                                            width: '100%',
-                                            padding: '14px', 
-                                            borderRadius: '14px', 
-                                            border: '2px solid #f0f2f7', 
-                                            background: '#fff',
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            gap: '8px',
-                                            maxHeight: '200px',
-                                            overflowY: 'auto'
-                                        }}>
-                                            {carousels.map(c => (
-                                                <div 
-                                                    key={c.id} 
-                                                    onClick={() => toggleCarouselSelection(c.id)}
-                                                    style={{
-                                                        padding: '10px 14px',
-                                                        borderRadius: '10px',
-                                                        background: selectedCarousels.includes(c.id) ? '#edf2ff' : '#fcfdfe',
-                                                        border: '1px solid ' + (selectedCarousels.includes(c.id) ? '#2f54ff' : '#eee'),
-                                                        display: 'flex',
-                                                        justifyContent: 'space-between',
-                                                        alignItems: 'center',
-                                                        cursor: 'pointer'
-                                                    }}
-                                                >
-                                                    <span style={{ fontWeight: '600', color: selectedCarousels.includes(c.id) ? '#2f54ff' : '#444' }}>{c.name}</span>
-                                                    {selectedCarousels.includes(c.id) ? <span>✅</span> : <div style={{width: '18px', height: '18px', borderRadius: '50%', border: '1px solid #ddd'}}></div>}
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <p style={{ fontSize: '0.75rem', color: '#999', marginTop: '8px', paddingLeft: '5px' }}>* Kerakli o'yingohlarni belgilang</p>
+                                <div className="form-group">
+                                    <label>Telefon (Ixtiyoriy):</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="998901234567" 
+                                        value={customerPhone}
+                                        onChange={(e) => setCustomerPhone(e.target.value)}
+                                        className="premium-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Jami Summa:</label>
+                                    <div style={{ padding: '16px', background: 'var(--bg-sub)', borderRadius: '14px', border: '1px solid var(--border)', fontSize: '1.2rem', fontWeight: 900, color: 'var(--primary)' }}>
+                                        {totalPrice.toLocaleString()} UZS
                                     </div>
                                 </div>
-
-                                <button 
-                                    onClick={handleGenerate}
-                                    disabled={loading || selectedCarousels.length === 0}
-                                    style={{ 
-                                        width: '100%', 
-                                        padding: '18px 24px', 
-                                        background: 'linear-gradient(135deg, #2f54ff 0%, #4062ff 100%)', 
-                                        color: '#fff', 
-                                        border: 'none', 
-                                        borderRadius: '20px', 
-                                        fontSize: '1.2rem', 
-                                        fontWeight: '900', 
-                                        cursor: 'pointer', 
-                                        boxShadow: '0 15px 30px rgba(47, 84, 255, 0.25)',
-                                        marginTop: '10px',
-                                        transition: '0.2s'
-                                    }}
-                                >
-                                    {loading ? "Sotilmoqda..." : "SOTISH & CHOP ETISH 🖨️"}
-                                </button>
-                                {error && <p style={{ color: '#f03e3e', fontSize: '0.9rem', fontWeight: '700', textAlign: 'center', margin: 0 }}>{error}</p>}
                             </div>
+
+                            <div className="form-group">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <label style={{ margin: 0 }}>Xizmat nuqtalarini tanlang:</label>
+                                    <button 
+                                        className="refresh-btn" 
+                                        onClick={() => {
+                                            const fetchCarousels = async () => {
+                                                try {
+                                                    const res = await axios.get(`${API_URL}/carousels?organizationId=${user?.organizationId}`);
+                                                    setCarousels(res.data);
+                                                } catch (e) {
+                                                    console.error(e);
+                                                }
+                                            };
+                                            fetchCarousels();
+                                        }}
+                                        style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', fontWeight: 700 }}
+                                    >
+                                        <RotateCcw size={12} /> Yangilash
+                                    </button>
+                                </div>
+                                <div className="carousel-grid">
+                                    {carousels.length > 0 ? (
+                                        carousels.map(c => {
+                                            const inBasket = basket.find(item => item.id === c.id);
+                                            return (
+                                                <button 
+                                                    key={c.id}
+                                                    className={`carousel-btn ${inBasket ? 'active' : ''}`}
+                                                    onClick={() => toggleCarouselSelection(c)}
+                                                >
+                                                    {inBasket && <CheckCircle2 size={14} className="check-icon" />}
+                                                    <span className="c-name">{c.name}</span>
+                                                    <span className="c-price">{c.price.toLocaleString()} UZS</span>
+                                                </button>
+                                            );
+                                        })
+                                    ) : (
+                                        <div style={{ padding: '20px', textAlign: 'center', width: '100%', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: '14px' }}>
+                                            Hech qanday o'yingoh topilmadi. Admin panelda qo'shganingizga ishonch hosil qiling.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {basket.length > 0 && (
+                                <div className="basket-section">
+                                    <h4 style={{ color: 'var(--text-main)', marginBottom: '12px', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Tanlangan Xizmatlar:</h4>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {basket.map(item => (
+                                            <div key={item.id} className="basket-item">
+                                                <div>
+                                                    <div style={{ fontWeight: 800, color: 'var(--text-main)' }}>{item.name}</div>
+                                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{(item.price * item.quantity).toLocaleString()} UZS</div>
+                                                </div>
+                                                <div className="qty-controls">
+                                                    <button className="qty-btn" onClick={() => updateItemQuantity(item.id, -1)}>-</button>
+                                                    <span className="qty-val">{item.quantity}</span>
+                                                    <button className="qty-btn" onClick={() => updateItemQuantity(item.id, 1)}>+</button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <button 
+                                className="main-sale-btn"
+                                onClick={handleGenerate}
+                                disabled={loading || basket.length === 0}
+                            >
+                                {loading ? "Jarayonda..." : <><Printer size={20} /> SOTISH & CHOP ETISH</>}
+                            </button>
+                            {error && <div className="error-box">{error}</div>}
                         </div>
 
-                        {/* 2. SEARCH & REFUND SECTION */}
-                        <div className="search-column" style={{ flex: '0.8', minWidth: '320px', paddingLeft: '40px' }}>
-                            <h3 style={{ margin: '0 0 20px 0', fontSize: '1.1rem', fontWeight: '800' }}>Vozvrat & Qidiruv 🔍</h3>
-                            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+                        {/* HISTORY SECTION */}
+                        <div className="panel-card history-panel">
+                            <div className="card-header">
+                                <History size={20} color="var(--primary)" />
+                                <h2>Oxirgi Sotuvlar</h2>
+                                <button className="refresh-btn" onClick={fetchRecentTickets}><RotateCcw size={14} /></button>
+                            </div>
+                            <div className="history-table-wrapper">
+                                <table className="history-table">
+                                    <thead>
+                                        <tr>
+                                            <th>MIJOZ</th>
+                                            <th>VAQT</th>
+                                            <th>MIQDOR</th>
+                                            <th>HOLAT</th>
+                                            <th>AMAL</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {recentTickets.map(t => (
+                                            <tr key={t.id}>
+                                                <td><strong>{t.customerName}</strong></td>
+                                                <td>{new Date(t.createdAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</td>
+                                                <td style={{ fontWeight: 700 }}>{t.quantity && t.quantity > 1 ? `${t.quantity} ta` : "1 ta"}</td>
+                                                <td>
+                                                    <span className={`status-pill ${t.status === -1 ? 'refunded' : 'active'}`}>
+                                                        {t.status === -1 ? "BEKOR" : "AKTIV"}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <button className="refund-trigger" onClick={() => { setSearchResult(t); setSearchQuery(t.qrString); }}>Vozvrat</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* RIGHT: SEARCH & REFUND */}
+                    <div className="search-section">
+                        <div className="panel-card">
+                            <div className="card-header">
+                                <Search size={20} color="var(--primary)" />
+                                <h2>Qidiruv & Vozvrat</h2>
+                            </div>
+                            
+                            <div className="search-bar">
                                 <input 
                                     type="text" 
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
-                                    placeholder="QR kod..."
-                                    className="kassir-input"
-                                    style={{ flex: 1, padding: '14px', borderRadius: '14px', fontSize: '0.9rem', outline: 'none' }}
+                                    placeholder="QR-Kod kiriting..."
+                                    className="premium-input search-input"
                                 />
-                                <button onClick={handleSearch} style={{ padding: '14px 20px', background: '#1a1a1a', color: '#fff', borderRadius: '14px', fontWeight: '700', border: 'none', cursor: 'pointer' }}>Izlash</button>
+                                <button className="search-btn" onClick={handleSearch}><Search size={20} /></button>
                             </div>
 
                             {searchResult ? (
-                                <div style={{ background: '#f8f9fc', borderRadius: '20px', padding: '20px', border: '1px solid #eef0f5' }}>
-                                    <div style={{ marginBottom: '16px' }}>
-                                        <span style={{ fontSize: '0.7rem', color: '#999', display: 'block', fontWeight: '700', textTransform: 'uppercase' }}>MIJOZ</span>
-                                        <div style={{ fontWeight: '800', fontSize: '1.1rem', color: '#1a1a1a' }}>{searchResult.customerName}</div>
+                                <div className="result-card fade-in">
+                                    <div className="customer-info-box">
+                                        <span className="label">MIJOZ</span>
+                                        <h3>{searchResult.customerName}</h3>
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <div className="refund-items-list">
                                         {searchResult.carousels.map(rel => (
-                                            <div key={rel.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '10px 14px', borderRadius: '12px', border: '1px solid #eef0f5' }}>
-                                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                            <div key={rel.id} className="refund-item">
+                                                <div className="item-left">
                                                     {rel.status === 0 && (
-                                                        <input type="checkbox" checked={refundCarousels.includes(rel.carouselId)} onChange={e => e.target.checked ? setRefundCarousels([...refundCarousels, rel.carouselId]) : setRefundCarousels(refundCarousels.filter(id => id !== rel.carouselId))} />
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={refundCarousels.includes(rel.carouselId)} 
+                                                            onChange={e => e.target.checked 
+                                                                ? setRefundCarousels([...refundCarousels, rel.carouselId]) 
+                                                                : setRefundCarousels(refundCarousels.filter(id => id !== rel.carouselId))
+                                                            } 
+                                                        />
                                                     )}
-                                                    <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>{rel.carousel?.name}</span>
+                                                    <span className="item-name">{rel.carousel?.name}</span>
                                                 </div>
-                                                <span style={{ fontSize: '0.65rem', fontWeight: '900', padding: '4px 8px', borderRadius: '6px', background: rel.status === 1 ? '#ebfbee' : rel.status === -1 ? '#fff0f0' : '#edf2ff', color: rel.status === 1 ? '#37b24d' : rel.status === -1 ? '#f03e3e' : '#2f54ff' }}>
+                                                <span className={`item-status-pill s-${rel.status}`}>
                                                     {rel.status === 1 ? "O'TILDI" : rel.status === -1 ? "BEKOR" : "KUTILMOQDA"}
                                                 </span>
                                             </div>
                                         ))}
                                     </div>
                                     {searchResult.status !== -1 && (
-                                        <button onClick={handleRefund} disabled={refundCarousels.length === 0} style={{ width: '100%', marginTop: '20px', padding: '14px', background: '#f03e3e', color: '#fff', border: 'none', borderRadius: '14px', fontWeight: '800', cursor: 'pointer' }}>Vozvrat Qilish</button>
+                                        <button className="refund-confirm-btn" onClick={handleRefund} disabled={refundCarousels.length === 0}>
+                                            VOZVRAT QILISH
+                                        </button>
                                     )}
                                 </div>
                             ) : (
-                                <div style={{ textAlign: 'center', padding: '30px 0', border: '2px dashed #f0f2f7', borderRadius: '20px' }}>
-                                    <p style={{ fontSize: '0.85rem', color: '#aaa', margin: 0 }}>QR kodni skanerlang yoki yozing</p>
+                                <div className="search-placeholder">
+                                    <QrCode size={48} color="#f1f5f9" />
+                                    <p>Ma'lumotlarni ko'rish uchun QR kodni skanerlang.</p>
                                 </div>
                             )}
-                        </div>
-                    </div>
-
-                    {/* BOTTOM SECTION: FULL-WIDTH HISTORY TABLE */}
-                    <div className="history-card" style={{ 
-                        borderRadius: '32px', 
-                        padding: '32px', 
-                        boxShadow: '0 10px 30px rgba(0,0,0,0.03)', 
-                        border: '1px solid transparent' 
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '8px', height: '24px', background: '#2f54ff', borderRadius: '4px' }}></div>
-                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800' }}>Oxirgi Sotuvlar Tarixi 📈</h3>
-                            </div>
-                            <button onClick={fetchRecentTickets} style={{ background: '#f8f9fc', border: 'none', color: '#2f54ff', fontWeight: '800', cursor: 'pointer', fontSize: '0.85rem', padding: '8px 16px', borderRadius: '10px' }}>Yangilash 🔄</button>
-                        </div>
-
-                        <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <thead>
-                                    <tr style={{ borderBottom: '2px solid #f4f6f9', textAlign: 'left' }}>
-                                        <th style={{ padding: '16px 24px', color: '#666', fontWeight: '700', fontSize: '0.8rem', textTransform: 'uppercase' }}>MIJOZ</th>
-                                        <th style={{ padding: '16px 24px', color: '#666', fontWeight: '700', fontSize: '0.8rem', textTransform: 'uppercase' }}>VAQT</th>
-                                        <th style={{ padding: '16px 24px', color: '#666', fontWeight: '700', fontSize: '0.8rem', textTransform: 'uppercase' }}>CHIPIBILAT</th>
-                                        <th style={{ padding: '16px 24px', color: '#666', fontWeight: '700', fontSize: '0.8rem', textTransform: 'uppercase' }}>MIQDOR</th>
-                                        <th style={{ padding: '16px 24px', color: '#666', fontWeight: '700', fontSize: '0.8rem', textTransform: 'uppercase' }}>HOLATI</th>
-                                        <th style={{ padding: '16px 24px', color: '#666', fontWeight: '700', fontSize: '0.8rem', textTransform: 'uppercase' }}>AMAL</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {recentTickets.map(t => (
-                                        <tr key={t.id} style={{ borderBottom: '1px solid #f8f9fb', transition: '0.2s' }} className="table-row">
-                                            <td style={{ padding: '20px 24px', fontWeight: '800', color: '#1a1a1a', fontSize: '0.95rem' }}>{t.customerName}</td>
-                                            <td style={{ padding: '20px 24px', fontSize: '0.85rem', color: '#888', fontWeight: '500' }}>
-                                                {new Date(t.createdAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
-                                            </td>
-                                            <td style={{ padding: '20px 24px' }}>
-                                                <code style={{ background: '#f5f7fa', padding: '6px 12px', borderRadius: '8px', fontSize: '0.8rem', color: '#2f54ff', fontWeight: '700' }}>{t.qrString}</code>
-                                            </td>
-                                            <td style={{ padding: '20px 24px' }}>
-                                                <div style={{ display: 'flex', gap: '4px' }}>
-                                                    {t.carousels.map(rel => (
-                                                        <span key={rel.id} title={rel.carousel.name} style={{ width: '8px', height: '8px', borderRadius: '50%', background: rel.status === 1 ? '#37b24d' : rel.status === -1 ? '#f03e3e' : '#2f54ff' }}></span>
-                                                    ))}
-                                                    <span style={{ marginLeft: '6px', fontSize: '0.75rem', fontWeight: '700', color: '#666' }}>{t.carousels.length} ta</span>
-                                                </div>
-                                            </td>
-                                            <td style={{ padding: '20px 24px' }}>
-                                                <span style={{ 
-                                                    padding: '5px 12px', 
-                                                    borderRadius: '25px', 
-                                                    fontSize: '0.7rem', 
-                                                    fontWeight: '900',
-                                                    background: t.status === -1 ? '#fff0f0' : '#ebfbee',
-                                                    color: t.status === -1 ? '#f03e3e' : '#37b24d'
-                                                }}>
-                                                    {t.status === -1 ? "BEKOR QILINGAN" : "AKTIV"}
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: '20px 24px' }}>
-                                                <button onClick={() => selectTicketForRefund(t)} style={{ background: '#1a1a1a', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '12px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '800', transition: '0.2s' }}>Vozvrat</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
                         </div>
                     </div>
                 </main>
             </div>
 
-            {/* PRINT OVERLAY */}
+            {/* PRINT SECTION (Dinamik Branding bilan) */}
             {generatedCode && (
-                <div id="print-section" style={{ position: 'fixed', left: '-9999px', top: '-9999px' }}>
-                    <div style={{ padding: '24px', border: '1px dashed #ccc', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '320px', margin: '0 auto', fontFamily: 'monospace' }}>
-                        <h2 style={{ margin: '0 0 12px 0', fontSize: '22px', letterSpacing: '1px' }}>XIVA LOKOMOTIV</h2>
-                        <div style={{ borderTop: '2px solid #000', borderBottom: '2px solid #000', width: '100%', padding: '12px 0', textAlign: 'center', marginBottom: '20px' }}>
-                            <p style={{ margin: '4px 0', fontSize: '18px' }}><b>{customerName || "Mijoz"}</b></p>
+                <div id="print-section">
+                    <div className="ticket-print-box">
+                        <h1 className="print-brand">{user?.organizationName || 'SmartAccess'}</h1>
+                        <div className="print-divider"></div>
+                        <p className="print-customer"><b>{customerName || "Mehmon"}</b></p>
+                        <div className="print-qr-wrapper">
+                            <QRCodeSVG value={generatedCode.qrString} size={150} level={"H"} />
+                            <div style={{ marginTop: '10px', fontSize: '1.2rem', fontWeight: 900 }}>
+                                {generatedCode.quantity > 1 ? `[${generatedCode.quantity}] KISHILIK CHIPTA` : "YAGONA CHIPTA"}
+                            </div>
                         </div>
-                        <ul style={{ margin: '0 0 24px 0', padding: 0, listStyle: 'none', width: '100%', fontSize: '15px' }}>
-                            {generatedCode.selectedNames?.map((n, i) => <li key={i} style={{ borderBottom: '1px solid #eee', padding: '8px 0', display: 'flex', justifyContent: 'space-between' }}>
-                                <span>{n}</span>
-                                <span>[TASDIQLANDI]</span>
-                            </li>)}
+                        <ul className="print-services-list">
+                            {generatedCode.items?.map((item, i) => (
+                                <li key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>{item.name}</span>
+                                    <span>x{item.quantity}</span>
+                                </li>
+                            ))}
                         </ul>
-                        <div style={{ padding: '15px', background: '#fff' }}>
-                            <QRCodeSVG value={generatedCode.qrString} size={200} level={"H"} />
+                        <div className="print-footer">
+                            <p className="qr-text">KOD: {generatedCode.qrString}</p>
+                            <p className="time-text">{new Date().toLocaleString()}</p>
+                            <p className="note-text">Chipta 24 soat davomida amal qiladi.</p>
                         </div>
-                        <p style={{ marginTop: '20px', fontSize: '12px', fontWeight: 'bold' }}>KOD: {generatedCode.qrString}</p>
-                        <p style={{ fontSize: '12px' }}>{new Date().toLocaleString()}</p>
-                        <p style={{ fontSize: '10px', opacity: 0.7, marginTop: '20px', textAlign: 'center' }}>Chipta 24 soat amal qiladi.</p>
                     </div>
                 </div>
             )}
@@ -481,99 +505,111 @@ const KassirPanel = () => {
                 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap');
                 
                 :root {
-                    --bg-page: ${isDarkMode ? '#0b0e14' : '#f4f7fe'};
-                    --bg-card: ${isDarkMode ? '#151921' : '#ffffff'};
-                    --text-main: ${isDarkMode ? '#ffffff' : '#1a1a1a'};
-                    --text-sub: ${isDarkMode ? '#a0aec0' : '#666666'};
-                    --border: ${isDarkMode ? '#2d3748' : '#f0f2f7'};
-                    --input-bg: ${isDarkMode ? '#1a202c' : '#fcfdfe'};
-                    --table-hover: ${isDarkMode ? '#1c2331' : '#f7f9fd'};
-                    --btn-exit-bg: ${isDarkMode ? '#2d1b1b' : '#fff5f5'};
+                    --primary: var(--primary);
+                    --bg: var(--bg-sub);
+                    --card: var(--bg-main);
+                    --text: var(--text-main);
+                    --text-muted: var(--text-muted);
+                    --border: var(--border);
+                    --shadow: var(--shadow);
                 }
 
-                * { box-sizing: border-box; margin: 0; padding: 0; }
-                
                 .kassir-page {
-                    background: var(--bg-page) !important;
-                    color: var(--text-main);
-                    transition: all 0.3s ease;
+                    background: var(--bg);
+                    color: var(--text);
+                    min-height: 100vh;
+                    transition: all 0.3s;
                 }
+
+                .container-main { max-width: 1440px; margin: 0 auto; padding: 24px; }
 
                 .kassir-header {
-                    background: var(--bg-card) !important;
-                    border: 1px solid var(--border) !important;
+                    display: flex; justify-content: space-between; align-items: center;
+                    padding: 20px 32px; background: var(--card); border-radius: 20px;
+                    border: 1px solid var(--border); box-shadow: var(--shadow);
+                    margin-bottom: 24px;
                 }
 
-                .brand-title { color: var(--text-main) !important; }
-                .user-name { color: var(--text-main) !important; }
-                
-                .btn-exit {
-                    background: var(--bg-card) !important;
-                    color: #f03e3e !important;
-                    border: 2px solid var(--btn-exit-bg) !important;
-                }
+                .header-logo { display: flex; align-items: center; gap: 12px; }
+                .header-logo .icon { background: var(--primary); padding: 10px; border-radius: 12px; box-shadow: 0 8px 16px rgba(99, 102, 241, 0.2); }
+                .brand-name { font-size: 1.25rem; font-weight: 900; margin: 0; letter-spacing: -0.5px; }
+                .platform-sub { font-size: 0.7rem; color: var(--primary); font-weight: 800; text-transform: uppercase; }
 
-                .glass-card {
-                    background: var(--bg-card) !important;
-                    border: 1px solid var(--border) !important;
-                    color: var(--text-main);
-                }
+                .header-actions { display: flex; align-items: center; gap: 24px; }
+                .theme-toggle { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 10px; cursor: pointer; }
+                .user-profile { text-align: right; }
+                .user-role { display: block; font-size: 0.65rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; }
+                .user-name { font-weight: 800; font-size: 0.95rem; }
+                .logout-btn { background: rgba(239, 68, 68, 0.1); color: var(--danger); border: none; padding: 10px; border-radius: 10px; cursor: pointer; display: flex; transition: 0.2s; }
+                .logout-btn:hover { background: var(--danger); color: white; transform: translateY(-2px); }
 
-                .kassir-input {
-                    background: var(--input-bg) !important;
-                    border: 2px solid var(--border) !important;
-                    color: var(--text-main) !important;
-                }
+                .kassir-main-layout { display: grid; grid-template-columns: 1.8fr 1fr; gap: 24px; }
+                .panel-card { background: var(--card); border: 1px solid var(--border); border-radius: 24px; padding: 32px; box-shadow: var(--shadow); margin-bottom: 24px; }
+                .card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+                .card-header h2 { font-size: 1.25rem; font-weight: 900; margin: 0; }
 
-                .kassir-input::placeholder { color: var(--text-sub); opacity: 0.7; }
+                .form-group { margin-bottom: 24px; }
+                .form-group label { display: block; font-size: 0.85rem; font-weight: 800; color: var(--text-muted); margin-bottom: 12px; }
+                .premium-input { width: 100%; border-radius: 16px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 16px; font-weight: 600; outline: none; transition: 0.2s; }
+                .premium-input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
 
-                .table-row:hover { background-color: var(--table-hover) !important; }
-                
-                .history-card {
-                    background: var(--bg-card) !important;
-                    border: 1px solid var(--border) !important;
-                }
+                .carousel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+                .carousel-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 16px; border-radius: 18px; font-weight: 700; cursor: pointer; transition: 0.2s; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; position: relative; }
+                .carousel-btn.active { border-color: var(--primary); color: var(--primary); background: rgba(99, 102, 241, 0.05); }
+                .carousel-btn .c-name { font-weight: 800; font-size: 1rem; }
+                .carousel-btn .c-price { font-size: 0.8rem; color: var(--text-muted); }
+                .carousel-btn.active .c-price { color: var(--primary); opacity: 0.8; }
+                .check-icon { position: absolute; top: 12px; right: 12px; color: var(--primary); }
 
-                table th { color: var(--text-sub) !important; }
-                table td { color: var(--text-main) !important; }
+                .basket-section { margin-top: 32px; padding-top: 24px; border-top: 2px dashed var(--border); }
+                .basket-item { display: flex; align-items: center; justify-content: space-between; padding: 16px; background: var(--bg); border-radius: 16px; border: 1px solid var(--border); margin-bottom: 10px; transition: 0.2s; }
+                .basket-item:hover { border-color: var(--primary); transform: translateX(5px); }
+                .qty-controls { display: flex; align-items: center; gap: 16px; background: var(--card); padding: 6px; border-radius: 12px; border: 1px solid var(--border); }
+                .qty-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: var(--primary); color: white; cursor: pointer; font-weight: 900; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+                .qty-btn:hover { transform: scale(1.1); filter: brightness(1.1); }
+                .qty-val { font-weight: 900; font-size: 1.1rem; min-width: 25px; text-align: center; }
 
-                @media screen and (max-width: 768px) {
-                    .kassir-page { padding: 12px !important; }
-                    .kassir-header { padding: 16px !important; flex-direction: column; gap: 12px; align-items: stretch !important; border-radius: 16px !important; }
-                    .header-right { justify-content: space-between; display: flex; width: 100%; }
-                    .carousel-buttons { display: none !important; }
-                    .carousel-select-mobile { display: block !important; width: 100% !important; }
-                    .kassir-main-card { padding: 20px !important; gap: 20px !important; border-radius: 20px !important; }
-                    
-                    /* FIXED: Explicitly handle columns on mobile to prevent overflow */
-                    .sales-column, .search-column { 
-                        min-width: unset !important; 
-                        flex: 1 1 100% !important; 
-                        padding: 0 !important;
-                        border: none !important;
-                    }
-                    
-                    .search-column {
-                        border-top: 2px solid var(--border) !important;
-                        padding-top: 24px !important;
-                    }
+                .main-sale-btn { width: 100%; margin-top: 24px; padding: 20px; border-radius: 18px; border: none; background: linear-gradient(135deg, var(--primary) 0%, #4338ca 100%); color: white; font-weight: 900; font-size: 1.1rem; cursor: pointer; box-shadow: 0 10px 20px rgba(99, 102, 241, 0.2); display: flex; align-items: center; justify-content: center; gap: 12px; transition: 0.3s; }
+                .main-sale-btn:hover { transform: translateY(-3px); box-shadow: 0 15px 30px rgba(99, 102, 241, 0.3); opacity: 0.95; }
+                .main-sale-btn:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; transform: none; box-shadow: none; }
 
-                    input[type="text"], .kassir-input { width: 100% !important; }
-                }
+                .history-table { width: 100%; border-collapse: collapse; }
+                .history-table th { text-align: left; padding: 12px; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+                .history-table td { padding: 16px 12px; border-bottom: 1px solid var(--border); font-size: 0.9rem; color: var(--text-main); }
+                .status-pill { padding: 6px 14px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; }
+                .status-pill.active { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+                .status-pill.refunded { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+                .refund-trigger { border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); padding: 6px 12px; border-radius: 8px; font-weight: 800; cursor: pointer; font-size: 0.75rem; transition: 0.2s; }
+                .refund-trigger:hover { border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.05); }
+
+                .search-bar { display: flex; gap: 12px; margin-bottom: 24px; }
+                .search-btn { background: var(--primary); color: white; border: none; border-radius: 14px; padding: 0 20px; cursor: pointer; transition: 0.2s; }
+                .search-btn:hover { opacity: 0.9; transform: scale(1.05); }
+                .search-placeholder { text-align: center; padding: 60px 0; color: var(--text-muted); }
+
+                .result-card { background: var(--bg); padding: 24px; border-radius: 20px; border: 1px solid var(--border); }
+                .customer-info-box h3 { margin: 4px 0 20px 0; font-size: 1.5rem; font-weight: 900; }
+                .refund-item { display: flex; justify-content: space-between; align-items: center; padding: 14px; background: var(--card); margin-bottom: 8px; border-radius: 12px; border: 1px solid var(--border); }
+                .item-name { font-weight: 700; margin-left: 10px; }
+                .item-status-pill { font-size: 0.65rem; font-weight: 900; padding: 4px 8px; border-radius: 6px; }
+                .s-1 { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+                .s-0 { background: rgba(99, 102, 241, 0.1); color: var(--primary); }
+                .s--1 { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+                .refund-confirm-btn { width: 100%; margin-top: 20px; padding: 16px; border: none; background: var(--danger); color: white; font-weight: 900; border-radius: 14px; cursor: pointer; transition: 0.2s; }
+                .refund-confirm-btn:hover { opacity: 0.9; transform: translateY(-2px); }
+                .refund-confirm-btn:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; transform: none; }
 
                 @media print {
                     .no-print { display: none !important; }
-                    body { visibility: hidden; }
-                    #print-section { 
-                        visibility: visible !important; 
-                        position: absolute; 
-                        left: 0; 
-                        top: 0; 
-                        width: 100%;
-                        color: #000 !important;
-                        background: #fff !important;
-                    }
+                    #print-section { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
+                    .ticket-print-box { font-family: 'Courier New', Courier, monospace; width: 300px; padding: 20px; text-align: center; border: 1px dashed #000; }
+                    .print-brand { font-size: 20px; margin: 0 0 10px 0; text-transform: uppercase; }
+                    .print-divider { border-top: 2px solid #000; margin: 10px 0; }
+                    .print-services-list { list-style: none; padding: 0; text-align: left; font-size: 14px; }
+                    .print-footer { margin-top: 20px; font-size: 10px; }
                 }
+
+                #print-section { display: none; }
             `}</style>
         </div>
     );
