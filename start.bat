@@ -4,12 +4,13 @@ echo ===================================================
 echo   SmartAccess QR Tizimi Lokal Serveri
 echo ===================================================
 
-:: Node.js o'rnatilganini tekshirish
+:: Mahalliy node.exe ni PATH ga vaqtincha qo'shish (Zero-Install uchun)
+set PATH=%~dp0;%PATH%
+
+:: Node.js borligini tekshirish
 where node >nul 2>nul
 if %errorlevel% neq 0 (
     echo [XATO] Kompyuterda Node.js topilmadi!
-    echo Iltimos, ishga tushirishdan oldin Node.js ni o'rnating:
-    echo Havola: https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi
     echo.
     pause
     exit /b
@@ -21,10 +22,10 @@ start "SmartAccess Backend" cmd /c "node index.js"
 
 :: Frontendni alohida oynada ishga tushirish
 echo [2/2] Frontend (Vite) server ishga tushirilmoqda (Port: 5173)...
-cd frontend
-start "SmartAccess Frontend" cmd /c "npm run dev"
+start "SmartAccess Frontend" cmd /c "cd frontend && node node_modules\vite\bin\vite.js"
 
 :: Brauzerda kassir oynasini ochish
 echo Loyiha muvaffaqiyatli boshlandi!
 timeout /t 3 >nul
 start http://localhost:5173
+
