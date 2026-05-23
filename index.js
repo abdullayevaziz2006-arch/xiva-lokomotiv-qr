@@ -37,6 +37,13 @@ const io = new Server(server, {
 
 const prisma = new PrismaClient();
 
+// Start IoT Central bot and socket manager
+const { initIoTCentral, activeAgents } = require('./iotCentral');
+initIoTCentral(io);
+
+// Start Super Admin bot
+require('./adminBot')(activeAgents);
+
 // Bazani "Extreme" rejimga sozlash (WAL Mode + Busy Timeout)
 async function tuneDatabase() {
     try {

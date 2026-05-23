@@ -19,6 +19,7 @@
     "express": "^4.18.3",
     "fast-xml-parser": "^4.3.5",
     "jsonwebtoken": "^9.0.2",
+    "node-telegram-bot-api": "^0.67.0",
     "socket.io": "^4.8.3",
     "urllib": "^4.9.0"
   },

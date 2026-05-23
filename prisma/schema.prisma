@@ -22,6 +22,7 @@ model Organization {
   carousels     Carousel[]
   qrCodes       QRCode[]
   staff         Staff[]
+  parkingLots   ParkingLot[]
 }
 
 model User {
@@ -33,6 +34,7 @@ model User {
   organizationId Int
   isOwner        Boolean        @default(false)
   createdAt      DateTime       @default(now())
+  telegramChatId String?        @unique
 
   organization   Organization   @relation(fields: [organizationId], references: [id])
   createdCodes   QRCode[]       @relation("CreatedBy")
@@ -122,4 +124,97 @@ model Attendance {
   terminalId     Int?
   
   staff          Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+}
+
+// --- SMARTPARK SHLAGBAUM MODELS ---
+
+model ParkingLot {
+  id             String   @id @default(uuid())
+  name           String
+  bankName       String?
+  bankAccount    String?
+  mfo            String?
+  inn            String?
+  telegramChatId String?
+  organizationId Int?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  tariffs        Tariff[]
+  sessions       ParkingSession[]
+  devices        Device[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Car {
+  id            String   @id @default(uuid())
+  plateNumber   String   @unique
+  isSubscriber  Boolean  @default(false)
+  subscriberEnd DateTime?
+  isBlacklisted Boolean  @default(false)
+  cardNo        String?
+  sessions      ParkingSession[]
+  logs          Log[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Tariff {
+  id          String   @id @default(uuid())
+  name        String
+  pricePerMin Float
+  freeMinutes Int      @default(0)
+  maxDaily    Float?
+  lotId       String
+  lot         ParkingLot @relation(fields: [lotId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ParkingSession {
+  id          String   @id @default(uuid())
+  carId       String
+  car         Car      @relation(fields: [carId], references: [id])
+  lotId       String
+  lot         ParkingLot @relation(fields: [lotId], references: [id])
+  entryTime   DateTime @default(now())
+  exitTime    DateTime?
+  fee         Float    @default(0)
+  status      String   @default("ACTIVE") // ACTIVE, COMPLETED, UNPAID
+  payments    Payment[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  sessionId   String
+  session     ParkingSession @relation(fields: [sessionId], references: [id])
+  amount      Float
+  method      String   // CASH, PAYME, CLICK
+  status      String   @default("SUCCESS") // PENDING, SUCCESS, FAILED
+  createdAt   DateTime @default(now())
+}
+
+model Log {
+  id          String   @id @default(uuid())
+  type        String   // ENTRY, EXIT, BLACKLIST_ATTEMPT, BARRIER_OPEN
+  carId       String?
+  car         Car?     @relation(fields: [carId], references: [id])
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model Device {
+  id        String   @id @default(uuid())
+  name      String
+  ipAddress String
+  port      Int      @default(80)
+  username  String?
+  password  String?
+  type      String   @default("ENTRY") // ENTRY, EXIT
+  status    String   @default("ONLINE") // ONLINE, OFFLINE
+  lotId     String
+  lot       ParkingLot @relation(fields: [lotId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
