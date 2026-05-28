@@ -1028,6 +1028,139 @@ app.post('/api/terminals/test', async (req, res) => {
 
 // --- SaaS Authentication ---
 
+// Aktivatsiya API (Lokal dastur uchun cloud orqali faollashtirish)
+app.post('/api/cloud/activate', async (req, res) => {
+    try {
+        let { phone, password } = req.body;
+        if (!phone || !password) {
+            return res.status(400).json({ error: "Telefon raqami/Email va parol kiritilishi shart." });
+        }
+
+        // Telefonda faqat raqamlarni qoldiramiz yoki email bo'lsa o'zgarishsiz qoldiramiz
+        let cleanPhone = phone;
+        if (!phone.includes('@')) {
+            cleanPhone = phone.toString().replace(/\D/g, '').slice(-9); 
+        }
+
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { phone: { contains: cleanPhone } },
+                    { phone: phone }
+                ]
+            },
+            include: { organization: true }
+        });
+
+        if (!user) {
+            return res.status(401).json({ error: "Foydalanuvchi topilmadi. Avval web-saytda ro'yxatdan o'ting." });
+        }
+
+        const isValid = await bcrypt.compare(password, user.passwordHash);
+        if (!isValid && password !== user.passwordHash) {
+            return res.status(401).json({ error: "Parol xato. Iltimos, qayta urinib ko'ring." });
+        }
+
+        // Ushbu tashkilot uchun ParkingLot bormi? Yo'q bo'lsa yaratamiz
+        let lot = await prisma.parkingLot.findFirst({
+            where: { organizationId: user.organizationId }
+        });
+
+        if (!lot) {
+            lot = await prisma.parkingLot.create({
+                data: {
+                    name: `SmartPark - ${user.organization.name}`,
+                    organizationId: user.organizationId
+                }
+            });
+        }
+
+        res.json({
+            success: true,
+            user: {
+                id: String(user.id),
+                name: user.fullName,
+                username: user.phone,
+                passwordHash: user.passwordHash,
+                role: 'ADMIN'
+            },
+            organization: {
+                id: user.organization.id,
+                name: user.organization.name,
+                slug: user.organization.slug
+            },
+            parkingLot: {
+                id: lot.id,
+                name: lot.name
+            }
+        });
+    } catch (e) {
+        console.error('[Cloud Activate Error]:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Google orqali ro'yxatdan o'tish/tizimga kirish
+app.post('/api/auth/google-login', async (req, res) => {
+    try {
+        const { email, fullName, password } = req.body;
+        if (!email || !fullName) {
+            return res.status(400).json({ error: "Google ma'lumotlari yetarli emas." });
+        }
+
+        let user = await prisma.user.findFirst({
+            where: { phone: email },
+            include: { organization: true }
+        });
+
+        if (!user) {
+            if (!password) {
+                // Agar yangi foydalanuvchi bo'lsa va parol yuborilmagan bo'lsa, status 202 qaytarib parol so'raymiz
+                return res.status(202).json({ needPassword: true, message: "Lokal dastur uchun parol o'rnating." });
+            }
+
+            // Yangi tashkilot yaratish (15 kunlik trial)
+            const orgName = `${fullName} MCHJ`;
+            const slug = fullName.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '') + '-' + Math.floor(Math.random() * 9000 + 1000);
+            const trialEndsAt = new Date();
+            trialEndsAt.setDate(trialEndsAt.getDate() + 15);
+            trialEndsAt.setHours(23, 59, 59, 999);
+
+            const organization = await prisma.organization.create({
+                data: { name: orgName, slug, trialEndsAt }
+            });
+
+            const passwordHash = await bcrypt.hash(password, 10);
+
+            user = await prisma.user.create({
+                data: {
+                    fullName,
+                    phone: email,
+                    passwordHash,
+                    role: 'admin',
+                    isOwner: true,
+                    organizationId: organization.id
+                },
+                include: { organization: true }
+            });
+        }
+
+        res.json({
+            id: user.id,
+            fullName: user.fullName,
+            role: user.role,
+            phone: user.phone,
+            organizationId: user.organizationId,
+            organizationName: user.organization.name,
+            organizationSlug: user.organization.slug,
+            trialEndsAt: user.organization.trialEndsAt
+        });
+    } catch (e) {
+        console.error('[Google Login Error]:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Ro'yxatdan o'tish (New Client Registration)
 app.post('/api/auth/register', async (req, res) => {
     try {
